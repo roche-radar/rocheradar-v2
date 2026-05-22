@@ -1,5 +1,5 @@
 """Run management: trigger, stop, poll progress, history."""
-import ulid
+import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, desc
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 class TriggerRequest(BaseModel):
-    limit: int | None = None  # optional: only run N targets
+    limit: int | None = None
 
 
 class RunOut(BaseModel):
@@ -35,7 +35,7 @@ class RunOut(BaseModel):
 def _run_to_out(r: RunLog) -> RunOut:
     return RunOut(
         id=r.id,
-        status=r.status.value,
+        status=r.status if isinstance(r.status, str) else r.status.value,
         started_at=r.started_at.isoformat(),
         completed_at=r.completed_at.isoformat() if r.completed_at else None,
         total_targets=r.total_targets,
@@ -51,27 +51,29 @@ def _run_to_out(r: RunLog) -> RunOut:
 
 @router.post("/trigger")
 async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
-    """Start a pipeline run via Celery chord (scrape → extract → pdf per target)."""
-    from app.tasks.scrape import scrape_target
-    from app.tasks.llm import extract_insights, generate_summary
-    from app.tasks.pdf import generate_target_pdf, generate_daily_summary_pdf
     from celery import chain, chord, group
+    from app.tasks.scrape import scrape_target
+    from app.tasks.llm import generate_summary
+    from app.tasks.pdf import generate_target_pdf, generate_daily_summary_pdf
 
-    # Enforce idempotency: reject if a run is already in progress
+    # Reject if a run is already in progress
     existing = await db.execute(
         select(RunLog).where(RunLog.status == RunStatus.running).limit(1)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="A run is already in progress")
 
-    idempotency_key = str(ulid.new())
+    idempotency_key = str(uuid.uuid4())
 
-    active_targets = await db.execute(
+    rows = await db.execute(
         select(Target).where(Target.active == True).order_by(Target.name)
     )
-    targets = active_targets.scalars().all()
+    targets = rows.scalars().all()
     if body.limit:
         targets = targets[: body.limit]
+
+    if not targets:
+        raise HTTPException(status_code=422, detail="No active targets configured")
 
     run = RunLog(
         idempotency_key=idempotency_key,
@@ -82,20 +84,23 @@ async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(run)
 
-    # Build per-target chains and group them, then fan-in to daily summary PDF
-    target_tasks = []
+    # Per-target: scrape → summary → PDF. All targets run in parallel (group).
+    # After all complete, generate daily summary PDF.
+    target_chains = []
     for t in targets:
         per_target = chain(
             scrape_target.si(t.id, run.id, idempotency_key),
-            # After scraping each post, extract is triggered per-post inside scrape_target
-            # generate_summary fires after all insigths are done
             generate_summary.si(t.id, run.id),
             generate_target_pdf.si(t.id, run.id),
         )
-        target_tasks.append(per_target)
+        target_chains.append(per_target)
 
-    pipeline = chord(group(*target_tasks), generate_daily_summary_pdf.si(run.id))
-    pipeline.apply_async()
+    pipeline = chord(group(*target_chains), generate_daily_summary_pdf.si(run.id))
+    async_result = pipeline.apply_async()
+
+    # Store the chord task id for potential cancellation
+    run.celery_task_id = async_result.id
+    await db.commit()
 
     return {"run_id": run.id, "idempotency_key": idempotency_key, "targets": len(targets)}
 
@@ -123,7 +128,7 @@ async def stop_run(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No active run")
     if run.celery_task_id:
         from app.tasks.celery_app import celery_app
-        celery_app.control.revoke(run.celery_task_id, terminate=True)
+        celery_app.control.revoke(run.celery_task_id, terminate=True, signal="SIGTERM")
     run.status = RunStatus.cancelled
     await db.commit()
     return {"stopped": True, "run_id": run.id}

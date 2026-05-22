@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Edit2, Check, X } from "lucide-react";
-import { api, type Target } from "@/lib/api";
+import { Plus, Trash2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 export default function Targets() {
   const qc = useQueryClient();
   const { data: targets, isLoading } = useQuery({ queryKey: ["targets"], queryFn: api.targets.list });
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", known_urls: "", notes: "" });
 

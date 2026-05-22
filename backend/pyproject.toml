@@ -42,7 +42,6 @@ dependencies = [
     "tenacity>=9.0.0",
     "python-dotenv>=1.0.0",
     "orjson>=3.10.0",
-    "ulid-py>=1.1.0",
 ]
 
 [project.optional-dependencies]

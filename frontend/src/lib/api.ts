@@ -58,11 +58,16 @@ export interface AppSettings {
   llm_provider: string;
   llm_pro_model: string;
   llm_flash_model: string;
+  api_key_set: boolean;
+  ollama_base_url: string;
+  nvidia_base_url: string;
+  custom_base_url: string | null;
   cron_hour: number;
   cron_minute: number;
   cron_enabled: boolean;
   agent_budget_per_run: number;
   llm_budget_hard_stop: number;
+  available_providers: Record<string, string>;
 }
 
 // ── API calls ─────────────────────────────────────────────
@@ -92,8 +97,12 @@ export const api = {
 
   settings: {
     get: () => req<AppSettings>("/settings/"),
-    update: (body: Partial<AppSettings>) =>
+    update: (body: Partial<AppSettings & { api_key?: string }>) =>
       req<AppSettings>("/settings/", { method: "POST", body: JSON.stringify(body) }),
+    fetchModels: (body: { provider?: string; api_key?: string }) =>
+      req<{ provider: string; models: string[] }>("/settings/models", { method: "POST", body: JSON.stringify(body) }),
+    testConnection: (body: { provider?: string; api_key?: string; model?: string }) =>
+      req<{ ok: boolean }>("/settings/test-connection", { method: "POST", body: JSON.stringify(body) }),
   },
 
   agent: {

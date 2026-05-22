@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     vertex_ai_flash_model: str = "gemini-2.5-flash"
     google_application_credentials: str = ""
 
+    # Provider API keys (env-var fallbacks; DB takes precedence at runtime)
+    openrouter_api_key: str = ""
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    nvidia_api_key: str = ""
+    gemini_api_key: str = ""
+
     # TinyFish
     tinyfish_api_key: str = ""
     tinyfish_api_keys: str = ""  # comma-separated

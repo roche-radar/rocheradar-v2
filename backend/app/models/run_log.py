@@ -1,13 +1,12 @@
-import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
 
-class RunStatus(str, enum.Enum):
+class RunStatus:
     running = "running"
     success = "success"
     error = "error"
@@ -21,7 +20,7 @@ class RunLog(Base):
     celery_task_id: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
 
-    status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.running, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default=RunStatus.running, nullable=False, index=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

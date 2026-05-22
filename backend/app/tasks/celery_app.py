@@ -1,5 +1,5 @@
 from celery import Celery
-from celery.utils.log import get_task_logger
+from celery.schedules import crontab
 
 from app.config import get_settings
 
@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.tasks.llm",
         "app.tasks.pdf",
         "app.tasks.embed",
+        "app.tasks.scheduler",
     ],
 )
 
@@ -24,20 +25,21 @@ celery_app.conf.update(
     timezone="Europe/Paris",
     enable_utc=True,
     task_track_started=True,
-    task_acks_late=True,                  # re-queue on worker crash
+    task_acks_late=True,
     task_reject_on_worker_lost=True,
-    worker_prefetch_multiplier=1,         # fair dispatch for long tasks
+    worker_prefetch_multiplier=1,
     task_routes={
         "app.tasks.scrape.*": {"queue": "scrape"},
         "app.tasks.llm.*": {"queue": "llm"},
         "app.tasks.pdf.*": {"queue": "pdf"},
         "app.tasks.embed.*": {"queue": "embed"},
+        "app.tasks.scheduler.*": {"queue": "llm"},
     },
-    # Dead-letter: failed tasks land in 'dead_letter' queue after max retries
-    task_queues_max_priority=None,
-    # Retry defaults (overridden per task)
-    task_max_retries=3,
-    task_default_retry_delay=30,
+    # Beat schedule: fire check_daily_run every minute so it can compare against DB settings
+    beat_schedule={
+        "check-daily-run": {
+            "task": "app.tasks.scheduler.check_daily_run",
+            "schedule": crontab(minute="*"),
+        },
+    },
 )
-
-logger = get_task_logger(__name__)

@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock } from "lucide-react";
-import { api, type Insight, type RunOut } from "@/lib/api";
+import { api, type Insight } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
@@ -25,7 +24,7 @@ export default function Dashboard() {
   const { setActiveRunId } = useAppStore();
 
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: api.stats, refetchInterval: 10_000 });
-  const { data: currentRun, refetch: refetchCurrent } = useQuery({
+  const { data: currentRun } = useQuery({
     queryKey: ["current-run"],
     queryFn: api.runs.current,
     refetchInterval: (q) => (q.state.data?.running ? 2000 : 10_000),

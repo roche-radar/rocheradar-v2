@@ -12,7 +12,7 @@ services:
 
   chromadb:
     ports:
-      - "8000:8000"
+      - "8002:8000"
 
   backend:
     build: ./backend

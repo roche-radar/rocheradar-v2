@@ -122,7 +122,7 @@ async def stats():
         today_start = date.today()
         today_insights = await sess.execute(
             select(func.count()).select_from(ExtractedInsight)
-            .where(ExtractedInsight.extracted_at >= today_start.isoformat())
+            .where(ExtractedInsight.extracted_at >= today_start)
         )
         last_run = await sess.execute(
             select(RunLog).order_by(desc(RunLog.started_at)).limit(1)
@@ -134,7 +134,7 @@ async def stats():
         "total_insights": total_insights.scalar(),
         "today_insights": today_insights.scalar(),
         "last_run_at": last.started_at.isoformat() if last else None,
-        "last_run_status": last.status.value if last else None,
+        "last_run_status": last.status if last else None,
     }
 
 
