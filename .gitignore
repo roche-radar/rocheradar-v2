@@ -1,0 +1,15 @@
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+node_modules/
+frontend/dist/
+reports/
+*.db
+.DS_Store
+/secrets/
+*.pem
+*.json.key
