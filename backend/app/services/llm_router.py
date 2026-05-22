@@ -22,6 +22,7 @@ from litellm import completion, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.config import get_settings
+from app.models.app_settings import PROVIDERS
 
 logger = structlog.get_logger(__name__)
 _config = get_settings()
@@ -42,8 +43,8 @@ def _model_string(provider: str, model: str, base_url: str | None = None) -> str
     return mapping.get(provider, model)
 
 
-def _extra_kwargs(provider: str, api_key: str | None, settings_row) -> dict[str, Any]:
-    """Build provider-specific kwargs for litellm.completion()."""
+def _extra_kwargs(provider: str, settings_row) -> dict[str, Any]:
+    """Build provider-specific kwargs for litellm.completion(). Keys read from config (.env)."""
     kwargs: dict[str, Any] = {}
 
     if provider == "vertex":
@@ -51,8 +52,7 @@ def _extra_kwargs(provider: str, api_key: str | None, settings_row) -> dict[str,
         kwargs["vertex_location"] = _config.google_cloud_location
 
     elif provider == "openrouter":
-        key = api_key or os.getenv("OPENROUTER_API_KEY", "")
-        kwargs["api_key"] = key
+        kwargs["api_key"] = _config.openrouter_api_key
         kwargs["api_base"] = "https://openrouter.ai/api/v1"
 
     elif provider == "ollama":
@@ -61,24 +61,20 @@ def _extra_kwargs(provider: str, api_key: str | None, settings_row) -> dict[str,
         kwargs["api_key"] = "ollama"   # litellm requires a non-empty string
 
     elif provider == "nvidia":
-        key = api_key or os.getenv("NVIDIA_API_KEY", "")
         base = (settings_row.nvidia_base_url if settings_row else None) or "https://integrate.api.nvidia.com/v1"
-        kwargs["api_key"] = key
+        kwargs["api_key"] = _config.nvidia_api_key
         kwargs["api_base"] = base
 
     elif provider == "anthropic":
-        key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
-        kwargs["api_key"] = key
+        kwargs["api_key"] = _config.anthropic_api_key
 
     elif provider == "openai":
-        key = api_key or os.getenv("OPENAI_API_KEY", "")
-        kwargs["api_key"] = key
+        kwargs["api_key"] = _config.openai_api_key
         if settings_row and settings_row.custom_base_url:
             kwargs["api_base"] = settings_row.custom_base_url
 
     elif provider == "gemini":
-        key = api_key or os.getenv("GEMINI_API_KEY", "")
-        kwargs["api_key"] = key
+        kwargs["api_key"] = _config.gemini_api_key
 
     return kwargs
 
@@ -88,11 +84,11 @@ def _extra_kwargs(provider: str, api_key: str | None, settings_row) -> dict[str,
 def _load_settings():
     """Load AppSettings synchronously — called from sync Celery context."""
     import asyncio
-    from app.database import AsyncSessionLocal
+    from app.database import CelerySessionLocal
     from app.models import AppSettings
 
     async def _get():
-        async with AsyncSessionLocal() as sess:
+        async with CelerySessionLocal() as sess:
             return await sess.get(AppSettings, 1)
 
     try:
@@ -127,16 +123,40 @@ def _dispatch(
     max_tokens: int,
 ) -> str:
     s = _load_settings()
-    provider = (s.llm_provider if s else None) or "vertex"
+    provider = (s.llm_provider if s else None) or "gemini"
+    if provider not in PROVIDERS:
+        logger.warning("llm.invalid_provider", provider=provider)
+        provider = "gemini"
     model = ((s.llm_flash_model if use_flash else s.llm_pro_model) if s else None) or (
         "gemini-2.5-flash" if use_flash else "gemini-2.5-pro"
     )
-    api_key = (s.api_key if s else None) or None
     model_str = _model_string(provider, model)
-    extra = _extra_kwargs(provider, api_key, s)
+    extra = _extra_kwargs(provider, s)
 
     logger.debug("llm.dispatch", provider=provider, model=model_str, flash=use_flash)
-    return _call(model_str, messages, temperature, max_tokens, extra)
+
+    try:
+        return _call(model_str, messages, temperature, max_tokens, extra)
+    except RateLimitError:
+        raise  # let tenacity handle rate-limit retries, don't bypass to fallback
+    except Exception as primary_exc:
+        # Auto-fallback to NVIDIA when primary provider fails and NVIDIA key is available
+        if provider != "nvidia" and _config.nvidia_api_key:
+            fallback_model = s.llm_flash_model if (use_flash and s) else "meta/llama-3.3-70b-instruct"
+            # Use NVIDIA's default model if the stored model isn't an NVIDIA model
+            if "/" not in fallback_model:
+                fallback_model = "meta/llama-3.3-70b-instruct"
+            fallback_str = _model_string("nvidia", fallback_model)
+            fallback_extra = _extra_kwargs("nvidia", s)
+            logger.warning(
+                "llm.fallback_to_nvidia",
+                primary_provider=provider,
+                primary_model=model_str,
+                fallback_model=fallback_str,
+                reason=str(primary_exc)[:200],
+            )
+            return _call(fallback_str, messages, temperature, max_tokens, fallback_extra)
+        raise
 
 
 def call_pro(messages: list[dict], temperature: float = 0.2, max_tokens: int = 4096) -> str:
@@ -151,16 +171,15 @@ def call_flash(messages: list[dict], temperature: float = 0.1, max_tokens: int =
 
 # ── Model listing helpers ─────────────────────────────────
 
-def list_models(provider: str, api_key: str | None, settings_row) -> list[str]:
-    """Return available model IDs for a given provider. Best-effort; empty list on failure."""
+def list_models(provider: str, settings_row) -> list[str]:
+    """Return available model IDs for a given provider. Keys from env vars. Best-effort; empty list on failure."""
     import httpx
 
     try:
         if provider == "openrouter":
-            key = api_key or os.getenv("OPENROUTER_API_KEY", "")
             r = httpx.get(
                 "https://openrouter.ai/api/v1/models",
-                headers={"Authorization": f"Bearer {key}"},
+                headers={"Authorization": f"Bearer {_config.openrouter_api_key}"},
                 timeout=10,
             )
             return [m["id"] for m in r.json().get("data", [])]
@@ -171,9 +190,12 @@ def list_models(provider: str, api_key: str | None, settings_row) -> list[str]:
             return [m["name"] for m in r.json().get("models", [])]
 
         elif provider == "nvidia":
-            key = api_key or os.getenv("NVIDIA_API_KEY", "")
             base = (settings_row.nvidia_base_url if settings_row else None) or "https://integrate.api.nvidia.com/v1"
-            r = httpx.get(f"{base}/models", headers={"Authorization": f"Bearer {key}"}, timeout=10)
+            r = httpx.get(
+                f"{base}/models",
+                headers={"Authorization": f"Bearer {_config.nvidia_api_key}"},
+                timeout=10,
+            )
             return [m["id"] for m in r.json().get("data", [])]
 
         elif provider == "anthropic":
@@ -187,10 +209,9 @@ def list_models(provider: str, api_key: str | None, settings_row) -> list[str]:
             ]
 
         elif provider == "openai":
-            key = api_key or os.getenv("OPENAI_API_KEY", "")
             r = httpx.get(
                 "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {key}"},
+                headers={"Authorization": f"Bearer {_config.openai_api_key}"},
                 timeout=10,
             )
             ids = [m["id"] for m in r.json().get("data", [])]
@@ -212,10 +233,10 @@ def list_models(provider: str, api_key: str | None, settings_row) -> list[str]:
     return []
 
 
-def test_connection(provider: str, api_key: str | None, model: str, settings_row) -> dict:
-    """Send a minimal ping to verify credentials and model. Returns {ok, error}."""
+def test_connection(provider: str, model: str, settings_row) -> dict:
+    """Send a minimal ping to verify credentials and model. Keys from env vars. Returns {ok, error}."""
     model_str = _model_string(provider, model)
-    extra = _extra_kwargs(provider, api_key, settings_row)
+    extra = _extra_kwargs(provider, settings_row)
     try:
         _call(
             model_str=model_str,

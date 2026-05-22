@@ -1,3 +1,4 @@
+import logging
 from celery import Celery
 from celery.schedules import crontab
 
@@ -5,16 +6,21 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# Silence noisy libraries so celery logs stay readable
+for _lib in ("fonttools", "weasyprint", "PIL", "httpx", "httpcore", "urllib3"):
+    logging.getLogger(_lib).setLevel(logging.WARNING)
+
 celery_app = Celery(
     "rocheradar",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
     include=[
-        "app.tasks.scrape",
+        "app.tasks.scrape",   # scrape_target (wave1) + wave2_rescue
         "app.tasks.llm",
         "app.tasks.pdf",
         "app.tasks.embed",
         "app.tasks.scheduler",
+        "app.tasks.maintenance",  # reap_stale_runs
     ],
 )
 
@@ -28,18 +34,43 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    # ── Hard guards against wedged tasks ────────────────────────────────
+    # Soft limit raises SoftTimeLimitExceeded → task can cleanup / log.
+    # Hard limit SIGKILLs the worker child process if it ignores soft.
+    # Together they prevent the "4 slots wedged on one stuck scrape" bug.
+    task_soft_time_limit=300,   # 5 min  (scrape can do many fetches; allow headroom)
+    task_time_limit=360,        # 6 min  hard kill
     task_routes={
         "app.tasks.scrape.*": {"queue": "scrape"},
         "app.tasks.llm.*": {"queue": "llm"},
         "app.tasks.pdf.*": {"queue": "pdf"},
         "app.tasks.embed.*": {"queue": "embed"},
         "app.tasks.scheduler.*": {"queue": "llm"},
+        "app.tasks.maintenance.*": {"queue": "llm"},
     },
-    # Beat schedule: fire check_daily_run every minute so it can compare against DB settings
+    # ── Per-task overrides where the default is wrong ───────────────────
+    # Agent rescue can hit 180s timeouts repeatedly; give it more room.
+    task_annotations={
+        "app.tasks.scrape.wave2_rescue": {
+            "soft_time_limit": 600,   # 10 min
+            "time_limit":      720,   # 12 min
+        },
+        "app.tasks.scrape.scrape_target": {
+            "soft_time_limit": 480,   # 8 min  — many parallel fetches
+            "time_limit":      600,   # 10 min
+        },
+    },
+    # Beat schedule
     beat_schedule={
         "check-daily-run": {
             "task": "app.tasks.scheduler.check_daily_run",
             "schedule": crontab(minute="*"),
+        },
+        # Reaper: every 5 min, mark any 'running' RunLog older than 1h as 'error'
+        # and revoke its child task IDs. Catches anything the time limits miss.
+        "reap-stale-runs": {
+            "task": "app.tasks.maintenance.reap_stale_runs",
+            "schedule": 300.0,
         },
     },
 )

@@ -7,8 +7,19 @@ const config: Config = {
     extend: {
       colors: {
         roche: {
-          blue: "#003087",
+          blue:  "#003087",
           light: "#0066cc",
+        },
+        dark: {
+          bg:      "#0a0f1e",
+          sidebar: "#070c19",
+          card:    "#111827",
+          border:  "#1e3a5f",
+          muted:   "#1e2d4a",
+          accent:  "#2563eb",
+          gold:    "#f59e0b",
+          text:    "#e2e8f0",
+          sub:     "#94a3b8",
         },
       },
       fontFamily: {

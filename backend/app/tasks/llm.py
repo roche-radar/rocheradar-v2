@@ -18,13 +18,16 @@ def extract_insights(self, post_id: int, run_id: int) -> dict:
     """Run LLM insight extraction on a single scraped post."""
     from app.services.extractor import ExtractorService
     from app.services.run_context import RunContext
+    from app.tasks.utils import patch_run
 
     log = logger.bind(post_id=post_id, run_id=run_id, task_id=self.request.id)
     log.info("extract_insights.started")
     try:
         ctx = RunContext(run_id=run_id, task_id=self.request.id)
         result = ExtractorService().extract(post_id=post_id, ctx=ctx)
-        log.info("extract_insights.done", insights=result.get("insights_saved", 0))
+        saved = result.get("insights_saved", 0)
+        log.info("extract_insights.done", insights=saved)
+        patch_run(run_id, **{"+insights_extracted": saved, "+llm_calls_used": 1})
         return result
     except Exception as exc:
         log.warning("extract_insights.retry", exc=str(exc), retries=self.request.retries)

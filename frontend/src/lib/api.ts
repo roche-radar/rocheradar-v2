@@ -1,4 +1,7 @@
-const BASE = "/api";
+// In dev: proxied to localhost:8009 via Vite
+// In prod (Railway): VITE_API_URL=https://your-backend.railway.app
+declare const __API_BASE__: string;
+const BASE = (typeof __API_BASE__ !== "undefined" && __API_BASE__ ? __API_BASE__ : "") + "/api";
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -52,27 +55,41 @@ export interface Insight {
   sentiment: string;
   category: string;
   extracted_at: string;
+  source_url: string | null;
+  source_name: string | null;
+  published_date: string | null;
 }
 
 export interface AppSettings {
   llm_provider: string;
   llm_pro_model: string;
   llm_flash_model: string;
-  api_key_set: boolean;
   ollama_base_url: string;
   nvidia_base_url: string;
   custom_base_url: string | null;
   cron_hour: number;
   cron_minute: number;
   cron_enabled: boolean;
+  cron_frequency: string;
+  cron_day_of_week: number;
   agent_budget_per_run: number;
   llm_budget_hard_stop: number;
   available_providers: Record<string, string>;
 }
 
+export interface TopicsData {
+  period_days: number;
+  total: number;
+  categories: { name: string; count: number }[];
+  top_topics: { topic: string; count: number }[];
+  sentiment: { name: string; count: number }[];
+  top_kols: { name: string; count: number }[];
+}
+
 // ── API calls ─────────────────────────────────────────────
 export const api = {
   stats: () => req<Stats>("/stats"),
+  topics: (days = 7) => req<TopicsData>(`/stats/topics?days=${days}`),
 
   targets: {
     list: () => req<Target[]>("/targets/"),
@@ -97,11 +114,11 @@ export const api = {
 
   settings: {
     get: () => req<AppSettings>("/settings/"),
-    update: (body: Partial<AppSettings & { api_key?: string }>) =>
+    update: (body: Partial<AppSettings>) =>
       req<AppSettings>("/settings/", { method: "POST", body: JSON.stringify(body) }),
-    fetchModels: (body: { provider?: string; api_key?: string }) =>
+    fetchModels: (body: { provider?: string }) =>
       req<{ provider: string; models: string[] }>("/settings/models", { method: "POST", body: JSON.stringify(body) }),
-    testConnection: (body: { provider?: string; api_key?: string; model?: string }) =>
+    testConnection: (body: { provider?: string; model?: string }) =>
       req<{ ok: boolean }>("/settings/test-connection", { method: "POST", body: JSON.stringify(body) }),
   },
 

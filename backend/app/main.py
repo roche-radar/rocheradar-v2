@@ -1,3 +1,4 @@
+import logging
 import structlog
 from contextlib import asynccontextmanager
 
@@ -13,20 +14,41 @@ from app.routers import targets, runs, reports, settings as settings_router, age
 
 _settings = get_settings()
 
-# ── Structlog ─────────────────────────────────────────────
+# ── Logging: console + JSON file in /tmp (kept outside the repo) ──
+LOG_FILE = Path("/tmp/rocheradar-backend.log")
+
+_log_level = logging.getLevelName(_settings.log_level)
+
+# Stdlib root logger → JSON file. Also attached to uvicorn loggers so access logs land here too.
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setLevel(_log_level)
+_file_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.basicConfig(level=_log_level, handlers=[_file_handler, logging.StreamHandler()], force=True)
+
+# Route uvicorn / celery loggers through root (which has the file handler).
+# Clear their own handlers and enable propagation so records hit the file exactly once.
+for _uv in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi", "celery", "celery.task"):
+    _l = logging.getLogger(_uv)
+    _l.handlers = []
+    _l.propagate = True
+    _l.setLevel(_log_level)
+
+# Silence noisy stdlib loggers so the log view stays useful
+for _noisy in ("sqlalchemy.engine", "sqlalchemy.engine.Engine", "watchfiles",
+               "watchfiles.main", "httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.dev.ConsoleRenderer() if not _settings.is_production
-        else structlog.processors.JSONRenderer(),
+        structlog.processors.JSONRenderer(),
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(
-        __import__("logging").getLevelName(_settings.log_level)
-    ),
+    wrapper_class=structlog.make_filtering_bound_logger(_log_level),
     context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
 )
 
 logger = structlog.get_logger(__name__)
@@ -57,9 +79,23 @@ async def _seed_defaults() -> None:
     async with AsyncSessionLocal() as sess:
         s = await sess.get(AppSettings, 1)
         if not s:
-            sess.add(AppSettings(id=1))
+            # Pick the best available provider based on which API key is in .env
+            # Priority: Gemini (fast+cheap) → NVIDIA (fallback) → others
+            if _settings.gemini_api_key:
+                provider, pro_model, flash_model = "gemini", "gemini-2.5-pro", "gemini-2.5-flash"
+            elif _settings.nvidia_api_key:
+                provider, pro_model, flash_model = "nvidia", "meta/llama-3.3-70b-instruct", "meta/llama-3.3-70b-instruct"
+            elif _settings.anthropic_api_key:
+                provider, pro_model, flash_model = "anthropic", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"
+            elif _settings.openai_api_key:
+                provider, pro_model, flash_model = "openai", "gpt-4o", "gpt-4o-mini"
+            elif _settings.openrouter_api_key:
+                provider, pro_model, flash_model = "openrouter", "openai/gpt-4o", "openai/gpt-4o-mini"
+            else:
+                provider, pro_model, flash_model = "vertex", "gemini-2.5-pro", "gemini-2.5-flash"
+            sess.add(AppSettings(id=1, llm_provider=provider, llm_pro_model=pro_model, llm_flash_model=flash_model))
             await sess.commit()
-            logger.info("seeded_app_settings")
+            logger.info("seeded_app_settings", provider=provider)
 
         # Seed targets if file exists and table is empty
         targets_file = Path(__file__).parent / "targets.json"
@@ -88,9 +124,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if not _settings.is_production else [
-        "https://rocheradar.yourdomain.com"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,20 +143,80 @@ async def health():
     return {"status": "ok", "version": "2.0.0"}
 
 
+@app.get("/api/stats/topics")
+async def stats_topics(days: int = 7):
+    """Return top discussed topics and categories for the dashboard graphs."""
+    from app.database import AsyncSessionLocal
+    from app.models import ExtractedInsight, Target
+    from sqlalchemy import select, func, desc
+    from datetime import datetime, timezone, timedelta
+    from collections import Counter
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    async with AsyncSessionLocal() as sess:
+        rows = await sess.execute(
+            select(ExtractedInsight, Target)
+            .join(Target, ExtractedInsight.target_id == Target.id)
+            .where(ExtractedInsight.extracted_at >= since)
+            .order_by(desc(ExtractedInsight.extracted_at))
+        )
+        insights = rows.all()
+
+    # Category breakdown
+    cat_counts: Counter = Counter()
+    topic_counts: Counter = Counter()
+    sentiment_counts: Counter = Counter({"positive": 0, "neutral": 0, "negative": 0})
+    kol_counts: Counter = Counter()
+
+    for ins, target in insights:
+        cat = (ins.category or "other").replace("_", " ").title()
+        cat_counts[cat] += 1
+        if ins.topic:
+            topic_counts[ins.topic] += 1
+        sentiment_counts[(ins.sentiment or "neutral").lower()] += 1
+        kol_counts[target.name] += 1
+
+    return {
+        "period_days": days,
+        "total": len(insights),
+        "categories": [
+            {"name": k, "count": v}
+            for k, v in cat_counts.most_common(8)
+        ],
+        "top_topics": [
+            {"topic": k, "count": v}
+            for k, v in topic_counts.most_common(10)
+        ],
+        "sentiment": [
+            {"name": k.capitalize(), "count": v}
+            for k, v in sentiment_counts.most_common()
+        ],
+        "top_kols": [
+            {"name": k, "count": v}
+            for k, v in kol_counts.most_common(10)
+        ],
+    }
+
+
 @app.get("/api/stats")
 async def stats():
     from app.database import AsyncSessionLocal
     from app.models import Target, ExtractedInsight, RunLog, RunStatus
     from sqlalchemy import select, func, desc
-    from datetime import date, timedelta
+    from datetime import datetime, timezone
+
+    # Use UTC midnight so insights stored as UTC timestamps are counted correctly
+    # regardless of the server's local timezone.
+    now_utc = datetime.now(timezone.utc)
+    today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with AsyncSessionLocal() as sess:
         active_targets = await sess.execute(select(func.count()).select_from(Target).where(Target.active == True))
         total_insights = await sess.execute(select(func.count()).select_from(ExtractedInsight))
-        today_start = date.today()
         today_insights = await sess.execute(
             select(func.count()).select_from(ExtractedInsight)
-            .where(ExtractedInsight.extracted_at >= today_start)
+            .where(ExtractedInsight.extracted_at >= today_start_utc)
         )
         last_run = await sess.execute(
             select(RunLog).order_by(desc(RunLog.started_at)).limit(1)
@@ -145,5 +239,9 @@ if _spa_dir.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
+        # Let real API 404s through — don't swallow them with the SPA shell
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
         index = _spa_dir / "index.html"
         return FileResponse(str(index))

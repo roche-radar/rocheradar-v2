@@ -1,12 +1,30 @@
-"""TinyFish scraping service (subprocess wrapper)."""
+"""TinyFish scraping service — parallel 3-pass pipeline.
+
+Parallelism model
+─────────────────
+• Search queries fire in parallel    (ThreadPoolExecutor, max 5)
+• URL fetches fire in parallel       (ThreadPoolExecutor, max 5 per target)
+• Rate limiting is global via Redis  (sliding window per API key, shared across all workers)
+• DB saves are thread-safe           (each thread gets its own asyncio event loop — no nesting)
+
+3-pass logic
+────────────
+Pass 1  Search (10 rich queries, parallel) → parallel fetch/agent per URL
+Pass 2  Agent rescue on known_urls if Pass 1 yields 0 posts
+Pass 3  Re-extract from stored posts if still nothing (extended window)
+"""
 from __future__ import annotations
 
 import asyncio
 import itertools
 import json
+import os
 import subprocess
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
 import structlog
 
@@ -17,9 +35,53 @@ from app.services.run_context import RunContext
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 
-_FRESHNESS_DAYS = 90
+_FRESHNESS_DAYS   = 90
+_EXTENDED_DAYS    = 365
+_FETCH_WORKERS    = 5   # parallel URL fetches per target
+_SEARCH_WORKERS   = 5   # parallel search queries per target
 
-# Thread-safe round-robin over TinyFish API keys
+ROCHE_DRUGS = [
+    "Tecentriq", "Ocrevus", "Hemlibra", "Kadcyla", "Perjeta",
+    "Avastin", "Herceptin", "Xolair", "Polivy", "Lunsumio",
+]
+
+NEWS_SITES = [
+    "statnews.com", "endpoints.news", "fiercepharma.com",
+    "biopharmadive.com", "reuters.com", "bloomberg.com",
+    "forbes.com", "nature.com", "nejm.org", "medscape.com",
+]
+
+LIKELY_NEEDS_AGENT = {
+    "twitter.com", "x.com", "linkedin.com", "instagram.com", "facebook.com",
+    "aacrjournals.org", "sciencedirect.com", "wiley.com", "onlinelibrary.wiley.com",
+    "springer.com", "link.springer.com", "jamanetwork.com", "thelancet.com",
+    "cell.com", "bmj.com", "academic.oup.com", "ascopubs.org", "annalsofoncology.org",
+    "nejm.org", "nature.com", "jto.org", "ssrn.com", "ovid.com",
+    "karger.com", "tandfonline.com", "sagepub.com", "mdpi.com",
+    "researchgate.net", "europepmc.org", "frontiersin.org",
+}
+
+HIGH_SIGNAL_DOMAINS = {
+    "statnews.com", "endpoints.news", "fiercepharma.com", "biopharmadive.com",
+    "reuters.com", "bloomberg.com", "nature.com", "nejm.org", "thelancet.com",
+    "jamanetwork.com", "cell.com", "twitter.com", "x.com", "substack.com",
+}
+
+HARD_SKIP_SUFFIXES = (
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+    ".mp4", ".mov", ".avi", ".mp3", ".wav",
+    ".zip", ".tar.gz", ".docx", ".doc", ".xlsx", ".pptx",
+)
+
+AGENT_FETCH_GOAL = (
+    "Extract the full main content of this page as plain text — the article body, "
+    "post content, interview transcript, or commentary. Include any direct quotes "
+    "from the author. Skip navigation, ads, cookie banners, and footers. "
+    "Return only the readable body text."
+)
+
+
+# ── API key rotation ──────────────────────────────────────
 _key_lock = threading.Lock()
 _key_cycle: itertools.cycle | None = None
 
@@ -35,69 +97,261 @@ def _next_key() -> str:
         return next(_key_cycle)
 
 
-class AgentBudget:
-    def __init__(self, limit: int) -> None:
-        self._limit = limit
-        self._used = 0
-        self._lock = threading.Lock()
-
-    def consume(self) -> bool:
-        with self._lock:
-            if self._used >= self._limit:
-                return False
-            self._used += 1
-            return True
-
-    @property
-    def remaining(self) -> int:
-        return max(0, self._limit - self._used)
+def _tf_env(key: str = "") -> dict:
+    env = os.environ.copy()
+    k = key or _next_key()
+    if k:
+        env["TINYFISH_API_KEY"] = k
+    return env, k   # return key so caller can track it for rate limiting
 
 
-def _run_tinyfish(args: list[str]) -> dict:
-    key = _next_key()
-    cmd = ["tinyfish"] + args + (["--api-key", key] if key else []) + ["--json"]
+# ── Redis rate limiter — shared across ALL workers ────────
+# Hard ceiling: a single rate-limit wait can never exceed this many seconds.
+# Without this, a misconfigured limit or a stuck Redis key could spin a worker
+# slot forever and re-create the "all 4 slots wedged" deadlock.
+_RATE_LIMIT_MAX_WAIT = 30
+
+
+def _rate_limit_wait(key: str) -> None:
+    """Sliding-window rate limiter per API key, enforced via Redis.
+    Premium: set TINYFISH_RATE_LIMIT_PER_KEY=300 in .env.
+    Blocks the calling thread until a slot is available, but never longer
+    than _RATE_LIMIT_MAX_WAIT seconds — after that, give up and let the
+    request through (better to risk one 429 than to wedge a worker)."""
+    limit = settings.tinyfish_rate_limit_per_key
+    if limit <= 0:
+        return
+    window = 60  # seconds
+    redis_key = f"tf_rate:{key[-12:] if key else 'default'}"
+    deadline = time.time() + _RATE_LIMIT_MAX_WAIT
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.stdout.strip():
-            return json.loads(result.stdout)
-        return {}
+        import redis as _redis
+        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+        while True:
+            now = time.time()
+            if now >= deadline:
+                logger.warning("scrape.rate_limit_wait_exceeded",
+                               key_suffix=key[-12:] if key else "default",
+                               max_wait=_RATE_LIMIT_MAX_WAIT)
+                return
+            pipe = r.pipeline(True)
+            pipe.zremrangebyscore(redis_key, "-inf", now - window)
+            pipe.zcard(redis_key)
+            pipe.zadd(redis_key, {f"{now:.6f}": now})
+            pipe.expire(redis_key, window + 5)
+            _, count, _, _ = pipe.execute()
+            if count < limit:
+                return
+            # Window full — sleep until the oldest entry expires (capped)
+            oldest = r.zrange(redis_key, 0, 0, withscores=True)
+            wait = max(0.1, (oldest[0][1] + window - now) if oldest else 1.0)
+            remaining = deadline - now
+            time.sleep(min(wait, 2.0, max(0.05, remaining)))
+    except Exception:
+        # Redis unavailable — conservative fallback sleep, also bounded
+        time.sleep(min(_RATE_LIMIT_MAX_WAIT, 60.0 / max(1, limit)))
+
+
+# ── Low-level TinyFish calls ──────────────────────────────
+
+def _run_tf(args: list[str], timeout: int = 90) -> tuple[dict, str]:
+    """Run tinyfish CLI, return (parsed_json, key_used)."""
+    env, key = _tf_env()
+    _rate_limit_wait(key)           # ← blocks here if rate limited
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+        if r.returncode != 0:
+            logger.debug("tinyfish.nonzero", cmd=args[1] if len(args) > 1 else "",
+                         returncode=r.returncode, stderr=(r.stderr or "")[:200])
+            return {}, key
+        out = r.stdout.strip()
+        try:
+            return (json.loads(out) if out else {}), key
+        except json.JSONDecodeError:
+            return {}, key
     except FileNotFoundError:
-        logger.warning("tinyfish.not_installed")
-        return {}
+        logger.error("tinyfish.not_installed")
+        return {}, key
+    except subprocess.TimeoutExpired:
+        logger.debug("tinyfish.timeout", cmd=args[1] if len(args) > 1 else "")
+        return {}, key
     except Exception as exc:
-        logger.warning("tinyfish.error", exc=str(exc))
-        return {}
+        logger.debug("tinyfish.error", exc=str(exc)[:200])
+        return {}, key
 
 
-def _build_queries(name: str) -> list[str]:
-    after = (date.today() - timedelta(days=_FRESHNESS_DAYS)).isoformat()
-    return [
-        f'"{name}" roche after:{after}',
-        f'"{name}" pharmaceutical after:{after}',
-        f'"{name}" oncology after:{after}',
+def _tf_search(query: str) -> list[dict]:
+    data, _ = _run_tf(["tinyfish", "search", "query", query])
+    return data.get("results", [])
+
+
+def _tf_fetch(url: str) -> str:
+    data, _ = _run_tf(["tinyfish", "fetch", "content", "get", url])
+    results = data.get("results", [])
+    if results:
+        return results[0].get("text") or results[0].get("content") or ""
+    return ""
+
+
+def _tf_agent(url: str) -> str:
+    """Run TinyFish agent on a URL. Handles all response shapes the agent can return."""
+    data, _ = _run_tf(
+        ["tinyfish", "agent", "run", "--url", url, "--sync", AGENT_FETCH_GOAL],
+        timeout=180,
+    )
+    if not isinstance(data, dict):
+        return ""
+
+    # Shape 1: flat text fields
+    for k in ("content", "text", "body", "output", "answer"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+
+    # Shape 2: {"results": [{"text": ...}]}
+    results = data.get("results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        if isinstance(first, dict):
+            for k in ("text", "content", "body"):
+                v = first.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v
+
+    # Shape 3: {"status": "COMPLETED", "result": {...}} — agent returned structured JSON
+    # Serialize the result dict as text so the LLM can still extract from it
+    result = data.get("result")
+    if result and data.get("status") == "COMPLETED":
+        if isinstance(result, str) and result.strip():
+            return result
+        if isinstance(result, dict):
+            # Convert structured JSON to readable text — LLM handles this fine
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
+    return ""
+
+
+def _fetch_failed(content: str) -> bool:
+    if not content or not content.strip():
+        return True
+    low = content.lower()
+    return "bot_blocked" in low or "target_http_error" in low
+
+
+# ── Agent budget (Redis INCR, shared across workers) ──────
+
+def _agent_can_consume(run_id: int) -> bool:
+    try:
+        import redis as _redis
+        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+        key = f"run:{run_id}:agent_used"
+        used = r.incr(key)
+        r.expire(key, 86400)
+        return used <= settings.agent_budget_per_run
+    except Exception:
+        return True
+
+
+# ── URL helpers ───────────────────────────────────────────
+
+def _domain(url: str) -> str:
+    try:
+        h = (urlparse(url).hostname or "").lower()
+    except Exception:
+        h = ""
+    return h[4:] if h.startswith("www.") else h
+
+
+def _is_binary(url: str) -> bool:
+    return (url or "").lower().endswith(HARD_SKIP_SUFFIXES)
+
+
+def _signal_score(url: str, ids: dict) -> int:
+    host = _domain(url)
+    score = 0
+    for handle in ids.values():
+        if handle and handle.lower() in url.lower():
+            score = max(score, 10)
+    if any(host == d or host.endswith("." + d) for d in HIGH_SIGNAL_DOMAINS):
+        score = max(score, 8)
+    if any(n in host for n in NEWS_SITES):
+        score = max(score, 6)
+    return score
+
+
+# ── Query building ────────────────────────────────────────
+
+def extract_identifiers(known_urls: list[str]) -> dict:
+    ids: dict[str, str] = {}
+    for url in (known_urls or []):
+        url = url.rstrip("/")
+        parts = url.split("/")
+        if "twitter.com" in url or "x.com" in url:
+            handle = parts[-1].lstrip("@")
+            if handle:
+                ids["twitter"] = handle
+        elif "linkedin.com/in/" in url:
+            ids["linkedin"] = parts[-1]
+        elif "substack.com" in url:
+            if "@" in parts[-1]:
+                ids["substack"] = parts[-1].lstrip("@")
+            elif ".substack.com" in url:
+                ids["substack"] = url.split(".substack.com")[0].split("//")[-1]
+    return ids
+
+
+def build_search_queries(name: str, ids: dict, window_days: int = _FRESHNESS_DAYS) -> list[str]:
+    cutoff_90  = (date.today() - timedelta(days=90)).isoformat()
+    cutoff_1yr = (date.today() - timedelta(days=365)).isoformat()
+    f90  = f"after:{cutoff_90}"
+    f1yr = f"after:{cutoff_1yr}"
+    drugs = " OR ".join(ROCHE_DRUGS[:6])
+    news  = " OR ".join(f"site:{s}" for s in NEWS_SITES[:5])
+
+    queries = [
+        f'"{name}" Roche {f90}',
+        f'"{name}" pharmaceutical OR oncology {f90}',
+        f'"{name}" ({news}) {f90}',
+        f'"{name}" {drugs} {f1yr}',
+        f'"{name}" Roche FDA OR EMA OR clinical trial {f1yr}',
+        f'"{name}" ESMO OR ASCO OR AACR {f1yr}',
+        f'"{name}" drug approval OR immunotherapy OR biomarker {f1yr}',
+        f'"{name}" cancer treatment OR lung cancer OR NSCLC {f1yr}',
+        f'"{name}" interview OR conference OR publication {f1yr}',
+        f'"{name}" pharma OR oncology site:researchgate.net OR site:pubmed.ncbi.nlm.nih.gov',
     ]
 
+    twitter = ids.get("twitter")
+    if twitter:
+        queries += [
+            f"site:twitter.com {twitter} Roche OR pharma {f90}",
+            f"site:x.com {twitter} {f90}",
+        ]
+    substack = ids.get("substack")
+    if substack:
+        queries.append(f"site:{substack}.substack.com {f1yr}")
+    linkedin = ids.get("linkedin")
+    if linkedin:
+        queries.append(f"site:linkedin.com/in/{linkedin} pharmaceutical {f1yr}")
+
+    return queries
+
+
+# ── Post persistence ──────────────────────────────────────
 
 async def _save_post_and_extract(
-    target_id: int,
-    url: str,
-    content: str,
-    idempotency_key: str,
-    run_id: int,
+    target_id: int, url: str, content: str,
+    idempotency_key: str, run_id: int,
 ) -> tuple[bool, int | None]:
-    """Persist a scraped post (if not duplicate) and fire extraction. Returns (saved, post_id)."""
-    from app.database import AsyncSessionLocal
+    from app.database import CelerySessionLocal
     from app.models import ScrapedPost
 
     h = sha256_hash(content)
     post = ScrapedPost(
-        target_id=target_id,
-        source_url=url,
-        raw_content=content,
-        content_hash=h,
-        idempotency_key=f"{idempotency_key}:{h[:16]}",
+        target_id=target_id, source_url=url, raw_content=content,
+        content_hash=h, idempotency_key=f"{idempotency_key}:{h[:16]}",
     )
-    async with AsyncSessionLocal() as sess:
+    async with CelerySessionLocal() as sess:
         try:
             sess.add(post)
             await sess.commit()
@@ -106,7 +360,6 @@ async def _save_post_and_extract(
             await sess.rollback()
             return False, None
 
-    # Fire embed + extract tasks
     from app.tasks.embed import embed_post
     from app.tasks.llm import extract_insights
     embed_post.delay(post.id)
@@ -114,87 +367,259 @@ async def _save_post_and_extract(
     return True, post.id
 
 
+def _save_post_sync(target_id, url, content, idempotency_key, run_id) -> tuple[bool, int | None]:
+    """Thread-safe wrapper — runs _save_post_and_extract in a fresh event loop.
+    Safe to call from ThreadPoolExecutor threads (no event loop nesting)."""
+    return asyncio.run(_save_post_and_extract(target_id, url, content, idempotency_key, run_id))
+
+
+# ── Per-URL worker — FREE FETCH ONLY (no agent in Pass 1) ────────────────
+
+def _process_url_free(
+    url: str, snippet: str, target_id: int,
+    idempotency_key: str, run_id: int,
+    dedup: DeduplicatorService, ctx: RunContext,
+) -> tuple[str, bool]:
+    """Pass 1: free fetch only. No agent calls at all.
+    Returns (result, bot_blocked) where result is 'new'|'dup'|'skip'|'stop'
+    and bot_blocked=True means the URL needs an agent retry in Pass 2."""
+    if ctx.should_stop:
+        return "stop", False
+
+    content = _tf_fetch(url)
+    bot_blocked = "bot_blocked" in (content or "").lower() or "target_http_error" in (content or "").lower()
+
+    full = f"{snippet}\n\n{content}".strip() if snippet else content
+    if not full.strip() or len(full.strip()) < 200:
+        return "skip", bot_blocked
+
+    is_dup, _ = dedup.is_semantic_duplicate(full, target_id)
+    if is_dup:
+        return "dup", False
+
+    saved, _ = _save_post_sync(target_id, url, full, idempotency_key, run_id)
+    return ("new" if saved else "dup"), False
+
+
+# ── Pass 2: agent-only on known_urls (+ any bot-blocked URLs) ────────────
+
+def _process_url_agent(
+    url: str, target_id: int, idempotency_key: str, run_id: int,
+    dedup: DeduplicatorService,
+) -> str:
+    """Pass 2: agent fetch. Used only when Pass 1 found 0 posts."""
+    content = _tf_agent(url)
+    if not content or len(content.strip()) < 200:
+        return "skip"
+
+    is_dup, _ = dedup.is_semantic_duplicate(content, target_id)
+    if is_dup:
+        return "dup"
+
+    saved, _ = _save_post_sync(target_id, url, content, idempotency_key, run_id)
+    return "new" if saved else "dup"
+
+
+# ── Main scrape service ───────────────────────────────────
+
 class ScrapeService:
     def __init__(self) -> None:
         self._dedup = DeduplicatorService()
 
     def scrape(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
-        return asyncio.run(self._scrape_async(target_id, ctx, idempotency_key))
+        return asyncio.run(self._run(target_id, ctx, idempotency_key))
 
-    async def _scrape_async(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
-        from app.database import AsyncSessionLocal
+    async def _run(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
+        from app.database import CelerySessionLocal
         from app.models import Target
 
-        async with AsyncSessionLocal() as sess:
+        async with CelerySessionLocal() as sess:
             target = await sess.get(Target, target_id)
             if not target:
                 return {"error": "target_not_found"}
             name = target.name
+            import json as _json
+            known_urls: list[str] = _json.loads(target.known_urls or "[]")
 
+        ids = extract_identifiers(known_urls)
+        run_id = ctx.run_id
+
+        # ── Pass 1: parallel search + parallel fetch ───────────────────────
+        logger.info("scrape.pass1.start", target=name)
+        queries = build_search_queries(name, ids)
+
+        # Build candidate list: known_urls (score=10) + search results
+        seen_urls: set[str] = set()
+        candidates: list[dict] = []
+        lock = threading.Lock()
+
+        # Always include known_urls in Pass 1 — free fetch even if they might bot-block
+        for ku in (known_urls or []):
+            if ku and not _is_binary(ku):
+                seen_urls.add(ku)
+                candidates.append({"url": ku, "snippet": "", "score": 10})
+
+        # Search queries in parallel
+        def _do_search(q: str):
+            for hit in _tf_search(q):
+                url = hit.get("url", "")
+                if not url or _is_binary(url):
+                    return
+                with lock:
+                    if url not in seen_urls:
+                        seen_urls.add(url)
+                        candidates.append({
+                            "url": url,
+                            "snippet": hit.get("snippet", ""),
+                            "score": _signal_score(url, ids),
+                        })
+
+        with ThreadPoolExecutor(max_workers=_SEARCH_WORKERS) as ex:
+            list(ex.map(_do_search, queries))
+
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+        n_known = len([k for k in (known_urls or []) if k and not _is_binary(k)])
+        top_candidates = [c for c in candidates if not ctx.should_stop][: 10 + n_known]
+
+        # ── Pass 1: FREE FETCH ONLY on all candidates (no agent) ─────────────
+        # Track bot-blocked URLs for potential Pass 2 agent retry
         new_posts = 0
         duplicates = 0
-        queries = _build_queries(name)
+        bot_blocked_urls: list[str] = []
 
-        for query in queries:
-            if ctx.should_stop:
-                break
-            search_result = _run_tinyfish(["search", query])
-            urls: list[str] = search_result.get("urls", [])[:25]
-
-            for url in urls:
-                if ctx.should_stop:
-                    break
-                fetch_result = _run_tinyfish(["fetch", url])
-                content: str = fetch_result.get("content", "")
-                if not content.strip():
-                    continue
-
-                is_dup, _ = self._dedup.is_semantic_duplicate(content, target_id)
-                if is_dup:
-                    duplicates += 1
-                    continue
-
-                saved, _ = await _save_post_and_extract(
-                    target_id, url, content, idempotency_key, ctx.run_id
-                )
-                if saved:
+        with ThreadPoolExecutor(max_workers=_FETCH_WORKERS) as ex:
+            futures = {
+                ex.submit(
+                    _process_url_free,
+                    c["url"], c["snippet"],
+                    target_id, idempotency_key, run_id,
+                    self._dedup, ctx,
+                ): c["url"]
+                for c in top_candidates
+            }
+            for future in as_completed(futures):
+                result, blocked = future.result()
+                if result == "new":
                     new_posts += 1
-                else:
+                elif result == "dup":
                     duplicates += 1
+                if blocked:
+                    bot_blocked_urls.append(futures[future])
 
-        return {"new_posts": new_posts, "duplicates": duplicates}
+        logger.info("scrape.pass1.done", target=name, new=new_posts, dupes=duplicates,
+                    candidates=len(candidates), bot_blocked=len(bot_blocked_urls))
 
-    def rescue_scrape(self, target_id: int, ctx: RunContext) -> dict:
-        return asyncio.run(self._rescue_async(target_id, ctx))
+        # Wave 1 ends here — NO agent calls.
+        # If 0 posts, the wave2_rescue Celery task will handle it after all targets finish.
+        return {
+            "new_posts":      new_posts,
+            "duplicates":     duplicates,
+            "needs_rescue":   new_posts == 0,
+            "bot_blocked":    bot_blocked_urls,
+        }
 
-    async def _rescue_async(self, target_id: int, ctx: RunContext) -> dict:
-        from app.database import AsyncSessionLocal
+    # ── Wave 2 rescue (called from wave2_rescue Celery task) ─────────────
+
+    def rescue(self, target_id: int, ctx: RunContext,
+               idempotency_key: str, bot_blocked_urls: list[str] | None = None) -> dict:
+        """Agent-only rescue for a 0-post target from Wave 1.
+        Tries known_urls + any bot-blocked URLs from Wave 1."""
+        return asyncio.run(self._rescue_async(target_id, ctx, idempotency_key, bot_blocked_urls or []))
+
+    async def _rescue_async(self, target_id: int, ctx: RunContext,
+                            idempotency_key: str, bot_blocked: list[str]) -> dict:
+        from app.database import CelerySessionLocal
         from app.models import Target
         import json as _json
 
-        budget = AgentBudget(settings.agent_budget_per_run)
+        async with CelerySessionLocal() as sess:
+            target = await sess.get(Target, target_id)
+            if not target:
+                return {"error": "target_not_found"}
+            name = target.name
+            known_urls: list[str] = _json.loads(target.known_urls or "[]")
 
-        async with AsyncSessionLocal() as sess:
+        ids = extract_identifiers(known_urls)
+
+        # Deduplicated list: known_urls (highest signal) + bot-blocked from Wave 1
+        agent_targets = list(dict.fromkeys(
+            [u for u in known_urls if u and not _is_binary(u)] + bot_blocked
+        ))[:5]  # cap at 5 agent calls per target
+
+        rescued = 0
+        logger.info("scrape.wave2.start", target=name, urls=len(agent_targets))
+        for url in agent_targets:
+            if ctx.should_stop or not _agent_can_consume(ctx.run_id):
+                break
+            result = _process_url_agent(url, target_id, idempotency_key, ctx.run_id, self._dedup)
+            if result == "new":
+                rescued += 1
+
+        logger.info("scrape.wave2.done", target=name, rescued=rescued)
+        return {"rescue_posts": rescued, "needs_rescue": rescued == 0}
+
+    def rescue_scrape(self, target_id: int, ctx: RunContext) -> dict:
+        """Legacy entry point kept for backwards compat."""
+        return self.rescue(target_id, ctx, f"standalone_{ctx.run_id}")
+
+    # ── Pass 3: re-extract from stored posts (extended window) ────────────
+
+    async def _extended_window(
+        self, target_id: int, name: str, run_id: int, ctx: RunContext,
+    ) -> int:
+        from app.database import CelerySessionLocal
+        from app.models import ScrapedPost, ExtractedInsight
+        from sqlalchemy import select
+
+        async with CelerySessionLocal() as sess:
+            all_posts = await sess.execute(
+                select(ScrapedPost).where(ScrapedPost.target_id == target_id)
+            )
+            posts = all_posts.scalars().all()
+            if not posts:
+                return 0
+            candidates = []
+            for p in posts:
+                existing = await sess.execute(
+                    select(ExtractedInsight)
+                    .where(ExtractedInsight.scraped_post_id == p.id).limit(1)
+                )
+                if existing.scalar_one_or_none() is None:
+                    candidates.append(p)
+
+        if not candidates:
+            return 0
+        candidates = candidates[:8]
+        logger.info("scrape.extended.start", target=name, posts=len(candidates))
+
+        from app.tasks.llm import extract_insights as extract_task
+        for post in candidates:
+            if ctx.should_stop:
+                break
+            if post.raw_content:
+                extract_task.apply_async(args=[post.id, run_id])
+
+        return len(candidates)
+
+    def rescue_scrape(self, target_id: int, ctx: RunContext) -> dict:
+        return asyncio.run(self._standalone_rescue(target_id, ctx))
+
+    async def _standalone_rescue(self, target_id: int, ctx: RunContext) -> dict:
+        from app.database import CelerySessionLocal
+        from app.models import Target
+        import json as _json
+        async with CelerySessionLocal() as sess:
             target = await sess.get(Target, target_id)
             if not target:
                 return {"error": "target_not_found"}
             known_urls: list[str] = _json.loads(target.known_urls or "[]")
-
         rescued = 0
-        for url in known_urls:
-            if ctx.should_stop or not budget.consume():
+        for url in [u for u in known_urls if u and not _is_binary(u)][:5]:
+            if not _agent_can_consume(ctx.run_id):
                 break
-            fetch_result = _run_tinyfish(["agent", url])
-            content: str = fetch_result.get("content", "")
-            if not content.strip():
-                continue
-            is_dup, _ = self._dedup.is_semantic_duplicate(content, target_id)
-            if is_dup:
-                continue
-            saved, _ = await _save_post_and_extract(
-                target_id, url, content, f"rescue_{ctx.run_id}", ctx.run_id
+            result = _process_url_agent(
+                url, target_id, f"standalone_{ctx.run_id}", ctx.run_id, self._dedup
             )
-            if saved:
+            if result == "new":
                 rescued += 1
-
         return {"rescued_posts": rescued}

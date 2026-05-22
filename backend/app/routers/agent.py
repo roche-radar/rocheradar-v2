@@ -1,5 +1,8 @@
 """Hermes AI chat endpoint — RAG over extracted insights."""
-from fastapi import APIRouter, Depends
+import asyncio
+from functools import partial
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,7 +53,13 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
         messages.append({"role": h.role, "content": h.content})
     messages.append({"role": "user", "content": body.message})
 
-    reply = call_pro(messages, max_tokens=1024)
+    # call_pro is synchronous and uses asyncio.run() internally;
+    # run it in a thread pool to avoid "event loop already running" from this async context
+    loop = asyncio.get_event_loop()
+    try:
+        reply = await loop.run_in_executor(None, partial(call_pro, messages, max_tokens=1024))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {str(exc)[:200]}")
 
     # Persist exchange
     db.add(AgentMessage(role="user", content=body.message))

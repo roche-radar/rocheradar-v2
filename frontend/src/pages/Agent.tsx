@@ -4,31 +4,45 @@ import { Send, Trash2, Bot } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+interface Message { role: string; content: string; }
+
 export default function Agent() {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const { data: history } = useQuery({ queryKey: ["agent-history"], queryFn: api.agent.history });
 
+  // Seed local state from server history on first load
+  useEffect(() => {
+    if (history) setMessages(history.map(({ role, content }) => ({ role, content })));
+  }, [history]);
+
   const chatMut = useMutation({
     mutationFn: (msg: string) => api.agent.chat(msg),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent-history"] }),
+    onSuccess: (data) => {
+      setMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
+    },
+    onError: () => {
+      setMessages(prev => [...prev, { role: "assistant", content: "Sorry, I couldn't get a response. Check the LLM provider settings." }]);
+    },
   });
 
   const clearMut = useMutation({
     mutationFn: api.agent.clearHistory,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent-history"] }),
+    onSuccess: () => { setMessages([]); qc.invalidateQueries({ queryKey: ["agent-history"] }); },
   });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [history]);
+  }, [messages, chatMut.isPending]);
 
   const send = () => {
     const msg = input.trim();
     if (!msg || chatMut.isPending) return;
     setInput("");
+    setMessages(prev => [...prev, { role: "user", content: msg }]);
     chatMut.mutate(msg);
   };
 
@@ -37,7 +51,7 @@ export default function Agent() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Bot size={20} className="text-roche-light" />
-          <h1 className="text-2xl font-bold text-roche-blue dark:text-white">Hermes AI</h1>
+          <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Hermes AI</h1>
         </div>
         <button
           onClick={() => clearMut.mutate()}
@@ -49,26 +63,26 @@ export default function Agent() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4">
-        {!history?.length && (
+        {!messages.length && (
           <div className="text-center py-12 text-gray-400 text-sm">
             Ask Hermes about KOL activity, recent insights, or competitive intelligence.
           </div>
         )}
-        {history?.map((msg, i) => (
+        {messages.map((msg, i) => (
           <div
             key={i}
             className={cn(
               "max-w-3xl rounded-xl px-4 py-3 text-sm whitespace-pre-wrap",
               msg.role === "user"
                 ? "ml-auto bg-roche-blue text-white"
-                : "bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100"
+                : "bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1e3a5f] text-gray-800 dark:text-[#e2e8f0]"
             )}
           >
             {msg.content}
           </div>
         ))}
         {chatMut.isPending && (
-          <div className="max-w-3xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl px-4 py-3">
+          <div className="max-w-3xl bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1e3a5f] rounded-xl px-4 py-3">
             <div className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
@@ -86,7 +100,7 @@ export default function Agent() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
           placeholder="Ask about KOLs, recent findings, competitive intelligence..."
-          className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-roche-light"
+          className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-[#1e3a5f] rounded-xl text-sm bg-white dark:bg-[#111827] focus:outline-none focus:ring-2 focus:ring-roche-light"
         />
         <button
           onClick={send}

@@ -1,53 +1,74 @@
-"""Daily run scheduler task — Celery beat fires this every minute.
+"""Scheduler — Celery beat fires check_scheduled_run every minute.
 
-It reads AppSettings from DB and decides whether to kick off the pipeline.
-This replaces APScheduler from v1 with a DB-backed, Celery-native approach.
+Supports both daily and weekly run modes, configured via AppSettings.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import structlog
 
 from app.tasks.celery_app import celery_app
+from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+_CRON_TZ = ZoneInfo("Europe/Paris")
+
+_DOW_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
 @celery_app.task(name="app.tasks.scheduler.check_daily_run", queue="llm")
 def check_daily_run() -> None:
-    """Run every minute via beat. Triggers pipeline if cron_enabled and it's the right time."""
+    """Fires every minute. Triggers pipeline when hour/minute (and optionally day) match."""
     asyncio.run(_check())
 
 
 async def _check() -> None:
-    from app.database import AsyncSessionLocal
-    from app.models import AppSettings, RunLog, RunStatus
+    from app.database import CelerySessionLocal
+    from app.models import AppSettings, RunLog
 
-    async with AsyncSessionLocal() as sess:
+    async with CelerySessionLocal() as sess:
         s = await sess.get(AppSettings, 1)
         if not s or not s.cron_enabled:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(_CRON_TZ)
+
+        # Hour + minute must match
         if now.hour != s.cron_hour or now.minute != s.cron_minute:
             return
 
-        # Don't double-trigger within the same minute
+        # Weekly mode: also check day of week (0=Mon … 6=Sun, matches Python's weekday())
+        frequency = getattr(s, "cron_frequency", "weekly") or "weekly"
+        if frequency == "weekly":
+            target_dow = getattr(s, "cron_day_of_week", 1) or 1
+            if now.weekday() != target_dow:
+                return
+
+        # Don't double-trigger within 2 minutes
         from sqlalchemy import select, func
-        from datetime import timedelta
-        one_min_ago = now - timedelta(minutes=2)
+        cutoff = now - timedelta(minutes=2)
         recent = await sess.execute(
             select(func.count()).select_from(RunLog)
-            .where(RunLog.started_at >= one_min_ago)
+            .where(RunLog.started_at >= cutoff)
         )
         if recent.scalar() > 0:
             logger.info("scheduler.skip_already_ran_recently")
             return
 
-    logger.info("scheduler.triggering_daily_run", hour=s.cron_hour, minute=s.cron_minute)
-    # Trigger via HTTP to reuse the existing run orchestration logic
+    dow_name = _DOW_NAMES[getattr(s, "cron_day_of_week", 1) or 1]
+    logger.info("scheduler.triggering",
+                frequency=frequency,
+                day=dow_name if frequency == "weekly" else "every day",
+                hour=s.cron_hour, minute=s.cron_minute)
+
     import httpx
     try:
-        httpx.post("http://localhost:8008/api/runs/trigger", json={}, timeout=10)
+        settings = get_settings()
+        r = httpx.post(settings.run_trigger_url, json={}, timeout=10)
+        if r.status_code >= 400:
+            logger.warning("scheduler.trigger_failed",
+                           status=r.status_code, body=(r.text or "")[:200])
     except Exception as exc:
         logger.warning("scheduler.trigger_failed", exc=str(exc))

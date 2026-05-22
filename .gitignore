@@ -1,17 +1,59 @@
+# ── Secrets ────────────────────────────────────────────────
 .env
-.venv/
-venv/
-*.pyc
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-*.egg-info/
-dist/
-node_modules/
-frontend/dist/
-reports/
-*.db
-.DS_Store
+.env.local
+.env.production
+backend/.env          # symlink — never push
 /secrets/
 *.pem
+*.key
+*.p12
 *.json.key
+gcp-sa.json
+
+# ── Python ─────────────────────────────────────────────────
+.venv/
+venv/
+**/.venv/
+**/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.sqlite3
+*.db
+
+# ── Reports / data ─────────────────────────────────────────
+reports/
+backend/reports/
+/tmp/
+
+# ── Celery ─────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat.pid
+/tmp/celery*.log
+/tmp/backend.log
+/tmp/vite.log
+
+# ── Node / Frontend ────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# ── OS ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ── IDE ────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.code-workspace
+
+# ── Logs ───────────────────────────────────────────────────
+*.log

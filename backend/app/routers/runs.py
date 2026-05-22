@@ -52,7 +52,7 @@ def _run_to_out(r: RunLog) -> RunOut:
 @router.post("/trigger")
 async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     from celery import chain, chord, group
-    from app.tasks.scrape import scrape_target
+    from app.tasks.scrape import scrape_target, wave2_rescue
     from app.tasks.llm import generate_summary
     from app.tasks.pdf import generate_target_pdf, generate_daily_summary_pdf
 
@@ -84,21 +84,40 @@ async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(run)
 
-    # Per-target: scrape → summary → PDF. All targets run in parallel (group).
-    # After all complete, generate daily summary PDF.
-    target_chains = []
+    # ── Two-wave pipeline ────────────────────────────────────────────────────
+    #
+    # Wave 1 (all targets in parallel, fast):
+    #   scrape_target  — free fetch only, NO agent calls
+    #   → got posts?   — chain summary + pdf immediately
+    #   → 0 posts?     — registers target in Redis for Wave 2, skips summary/pdf for now
+    #
+    # Wave 2 (chord callback, after ALL Wave 1 tasks complete):
+    #   wave2_rescue   — agent on 0-post targets (known_urls + bot-blocked)
+    #   → then summary + pdf for any rescued targets
+    #   → then daily summary pdf + marks run success
+    #
+    # This ensures 0-post targets NEVER block other targets' scraping.
+
+    # Wave 1: per target → scrape (fast) → summary → pdf for targets WITH posts
+    # (wave2_rescue handles the 0-post ones via Redis)
+    wave1_tasks = []
     for t in targets:
         per_target = chain(
             scrape_target.si(t.id, run.id, idempotency_key),
             generate_summary.si(t.id, run.id),
             generate_target_pdf.si(t.id, run.id),
         )
-        target_chains.append(per_target)
+        wave1_tasks.append(per_target)
 
-    pipeline = chord(group(*target_chains), generate_daily_summary_pdf.si(run.id))
+    # Wave 2 callback: rescue 0-post targets → then daily summary
+    wave2_callback = chain(
+        wave2_rescue.si(run.id),
+        generate_daily_summary_pdf.si(run.id),
+    )
+
+    pipeline = chord(group(*wave1_tasks), wave2_callback)
     async_result = pipeline.apply_async()
 
-    # Store the chord task id for potential cancellation
     run.celery_task_id = async_result.id
     await db.commit()
 
@@ -119,19 +138,36 @@ async def current_run(db: AsyncSession = Depends(get_db)):
 
 @router.post("/stop")
 async def stop_run(db: AsyncSession = Depends(get_db)):
-    row = await db.execute(
-        select(RunLog).where(RunLog.status == RunStatus.running)
-        .order_by(RunLog.started_at.desc()).limit(1)
-    )
-    run = row.scalar_one_or_none()
-    if not run:
+    # Cancel ALL currently-running rows in one go: stale rows can pile up
+    # if a previous chord finished without a completion callback.
+    from datetime import datetime, timezone
+    rows = await db.execute(select(RunLog).where(RunLog.status == RunStatus.running))
+    runs = list(rows.scalars().all())
+    if not runs:
         raise HTTPException(status_code=404, detail="No active run")
-    if run.celery_task_id:
-        from app.tasks.celery_app import celery_app
-        celery_app.control.revoke(run.celery_task_id, terminate=True, signal="SIGTERM")
-    run.status = RunStatus.cancelled
+
+    # Flip status first so the UI sees "stopped" on the very next poll,
+    # even if Celery revoke is slow or unreachable.
+    now = datetime.now(timezone.utc)
+    task_ids: list[str] = []
+    for r in runs:
+        r.status = RunStatus.cancelled
+        r.completed_at = now
+        if r.celery_task_id:
+            task_ids.append(r.celery_task_id)
     await db.commit()
-    return {"stopped": True, "run_id": run.id}
+
+    # Best-effort task cancellation — don't fail the request if the broker is down.
+    if task_ids:
+        try:
+            from app.tasks.celery_app import celery_app
+            celery_app.control.revoke(task_ids, terminate=True, signal="SIGTERM")
+        except Exception as exc:
+            # Log but don't propagate — UI already reflects stopped state.
+            import structlog
+            structlog.get_logger(__name__).warning("stop_run.revoke_failed", exc=str(exc))
+
+    return {"stopped": True, "cancelled": [r.id for r in runs]}
 
 
 @router.get("/", response_model=list[RunOut])

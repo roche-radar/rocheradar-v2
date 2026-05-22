@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import Dashboard from "@/pages/Dashboard";
@@ -10,11 +11,16 @@ import { useAppStore } from "@/store";
 import { cn } from "@/lib/utils";
 
 export default function App() {
-  const { sidebarOpen } = useAppStore();
+  const { sidebarOpen, darkMode } = useAppStore();
+
+  // Apply dark class to <html> whenever darkMode changes
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+  }, [darkMode]);
 
   return (
     <BrowserRouter>
-      <div className="flex h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      <div className="flex h-screen bg-gray-50 dark:bg-[#0a0f1e] text-gray-900 dark:text-[#e2e8f0]">
         <Sidebar />
         <main
           className={cn(

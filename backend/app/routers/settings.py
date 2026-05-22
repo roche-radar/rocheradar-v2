@@ -1,3 +1,6 @@
+import asyncio
+from functools import partial
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +19,14 @@ async def _get_or_create(db: AsyncSession) -> AppSettings:
     if not s:
         s = AppSettings(id=_SINGLETON_ID)
         db.add(s)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            # Another request may have created the singleton concurrently.
+            await db.rollback()
+            s = await db.get(AppSettings, _SINGLETON_ID)
+            if not s:
+                raise
         await db.refresh(s)
     return s
 
@@ -27,13 +37,14 @@ class SettingsOut(BaseModel):
     llm_provider: str
     llm_pro_model: str
     llm_flash_model: str
-    api_key_set: bool           # never expose the actual key
     ollama_base_url: str
     nvidia_base_url: str
     custom_base_url: str | None
     cron_hour: int
     cron_minute: int
     cron_enabled: bool
+    cron_frequency: str
+    cron_day_of_week: int
     agent_budget_per_run: int
     llm_budget_hard_stop: int
     available_providers: dict[str, str]
@@ -43,20 +54,20 @@ class SettingsUpdate(BaseModel):
     llm_provider: str | None = None
     llm_pro_model: str | None = None
     llm_flash_model: str | None = None
-    api_key: str | None = None          # empty string = clear key
     ollama_base_url: str | None = None
     nvidia_base_url: str | None = None
     custom_base_url: str | None = None
     cron_hour: int | None = None
     cron_minute: int | None = None
     cron_enabled: bool | None = None
+    cron_frequency: str | None = None
+    cron_day_of_week: int | None = None
     agent_budget_per_run: int | None = None
     llm_budget_hard_stop: int | None = None
 
 
 class TestConnectionRequest(BaseModel):
     provider: str | None = None    # if None, use current DB provider
-    api_key: str | None = None
     model: str | None = None
 
 
@@ -65,13 +76,14 @@ def _to_out(s: AppSettings) -> SettingsOut:
         llm_provider=s.llm_provider,
         llm_pro_model=s.llm_pro_model,
         llm_flash_model=s.llm_flash_model,
-        api_key_set=bool(s.api_key),
         ollama_base_url=s.ollama_base_url or "http://localhost:11434",
         nvidia_base_url=s.nvidia_base_url or "https://integrate.api.nvidia.com/v1",
         custom_base_url=s.custom_base_url,
         cron_hour=s.cron_hour,
         cron_minute=s.cron_minute,
         cron_enabled=s.cron_enabled,
+        cron_frequency=s.cron_frequency or "weekly",
+        cron_day_of_week=s.cron_day_of_week if s.cron_day_of_week is not None else 1,
         agent_budget_per_run=s.agent_budget_per_run,
         llm_budget_hard_stop=s.llm_budget_hard_stop,
         available_providers=PROVIDERS,
@@ -89,11 +101,9 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=SettingsOut)
 async def update_settings(body: SettingsUpdate, db: AsyncSession = Depends(get_db)):
     s = await _get_or_create(db)
+    if body.llm_provider is not None and body.llm_provider not in PROVIDERS:
+        raise HTTPException(status_code=422, detail=f"Unknown provider: {body.llm_provider}")
     data = body.model_dump(exclude_none=True)
-
-    # Special-case api_key: empty string clears it
-    if "api_key" in data:
-        s.api_key = data.pop("api_key") or None
     for field, value in data.items():
         setattr(s, field, value)
 
@@ -109,26 +119,26 @@ async def list_providers():
 
 @router.post("/models")
 async def fetch_models(body: TestConnectionRequest, db: AsyncSession = Depends(get_db)):
-    """Return available model IDs for the given (or current) provider."""
+    """Return available model IDs for the given (or current) provider. Keys come from env vars."""
     from app.services.llm_router import list_models
 
     s = await _get_or_create(db)
     provider = body.provider or s.llm_provider
-    api_key = body.api_key or s.api_key
-    models = list_models(provider=provider, api_key=api_key, settings_row=s)
+    loop = asyncio.get_event_loop()
+    models = await loop.run_in_executor(None, partial(list_models, provider, s))
     return {"provider": provider, "models": models}
 
 
 @router.post("/test-connection")
 async def test_connection(body: TestConnectionRequest, db: AsyncSession = Depends(get_db)):
-    """Ping the LLM provider to verify credentials."""
+    """Ping the LLM provider to verify credentials. Keys come from env vars."""
     from app.services.llm_router import test_connection as _test
 
     s = await _get_or_create(db)
     provider = body.provider or s.llm_provider
-    api_key = body.api_key or s.api_key
     model = body.model or s.llm_pro_model
-    result = _test(provider=provider, api_key=api_key, model=model, settings_row=s)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, partial(_test, provider, model, s))
     if not result["ok"]:
         raise HTTPException(status_code=502, detail=result.get("error", "Connection failed"))
     return {"ok": True, "provider": provider, "model": model}

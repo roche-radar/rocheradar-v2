@@ -34,43 +34,36 @@ def _get_collection():
 
 class EmbedService:
     def embed(self, post_id: int) -> dict:
-        async def _load():
-            from app.database import AsyncSessionLocal
+        """Load post, upsert into ChromaDB, mark chroma_id — all in one asyncio.run() call
+        to avoid the 'Future attached to a different loop' crash from sequential asyncio.run()s."""
+        async def _run():
+            from app.database import CelerySessionLocal
             from app.models import ScrapedPost
-            async with AsyncSessionLocal() as sess:
-                return await sess.get(ScrapedPost, post_id)
+            async with CelerySessionLocal() as sess:
+                post = await sess.get(ScrapedPost, post_id)
+                if post is None:
+                    return {"error": "post_not_found"}
+                content = post.raw_content or ""
+                if not content.strip():
+                    return {"error": "empty_content"}
 
-        post = asyncio.run(_load())
-        if post is None:
-            return {"error": "post_not_found"}
+                chroma_id = f"post_{post.id}"
+                try:
+                    col = _get_collection()
+                    col.upsert(
+                        ids=[chroma_id],
+                        documents=[content],
+                        metadatas=[{"target_id": post.target_id, "post_id": post.id}],
+                    )
+                except Exception as exc:
+                    logger.warning("embed.chroma_failed", post_id=post_id, exc=str(exc))
+                    return {"error": str(exc)}
 
-        content = post.raw_content or ""
-        if not content.strip():
-            return {"error": "empty_content"}
+                post.chroma_id = chroma_id
+                await sess.commit()
+                return {"chroma_id": chroma_id}
 
-        try:
-            col = _get_collection()
-            chroma_id = f"post_{post.id}"
-            col.upsert(
-                ids=[chroma_id],
-                documents=[content],
-                metadatas=[{"target_id": post.target_id, "post_id": post.id}],
-            )
-        except Exception as exc:
-            logger.warning("embed.chroma_failed", post_id=post_id, exc=str(exc))
-            return {"error": str(exc)}
-
-        async def _update():
-            from app.database import AsyncSessionLocal
-            from app.models import ScrapedPost
-            async with AsyncSessionLocal() as sess:
-                p = await sess.get(ScrapedPost, post_id)
-                if p:
-                    p.chroma_id = chroma_id
-                    await sess.commit()
-
-        asyncio.run(_update())
-        return {"chroma_id": chroma_id}
+        return asyncio.run(_run())
 
     def query_similar(self, content: str, target_id: int, threshold: float) -> tuple[bool, str | None]:
         try:

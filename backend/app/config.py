@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # DB
+    # DB — Railway provides DATABASE_URL as postgresql://... we convert to asyncpg
     database_url: str = "postgresql+asyncpg://roche:roche@localhost:5432/rocheradar"
 
     # Redis / Celery
@@ -16,11 +16,9 @@ class Settings(BaseSettings):
     # Vertex AI
     google_cloud_project: str = ""
     google_cloud_location: str = "europe-west4"
-    vertex_ai_pro_model: str = "gemini-2.5-pro"
-    vertex_ai_flash_model: str = "gemini-2.5-flash"
     google_application_credentials: str = ""
 
-    # Provider API keys (env-var fallbacks; DB takes precedence at runtime)
+    # Provider API keys
     openrouter_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
@@ -29,11 +27,12 @@ class Settings(BaseSettings):
 
     # TinyFish
     tinyfish_api_key: str = ""
-    tinyfish_api_keys: str = ""  # comma-separated
+    tinyfish_api_keys: str = ""
+    tinyfish_rate_limit_per_key: int = 30
 
     # ChromaDB
     chroma_host: str = "localhost"
-    chroma_port: int = 8000
+    chroma_port: int = 8002
     chroma_collection: str = "rocheradar_posts"
 
     # Sentry
@@ -43,7 +42,10 @@ class Settings(BaseSettings):
     secret_key: str = "changeme-at-least-32-chars-long!!"
     environment: str = "development"
     log_level: str = "INFO"
-    reports_dir: str = "/app/reports"
+    reports_dir: str = "./reports"
+
+    # Internal trigger URL — on Railway set to https://your-backend.railway.app/api/runs/trigger
+    run_trigger_url: str = "http://localhost:8009/api/runs/trigger"
 
     # Pipeline tunables
     daily_run_hour: int = 8
@@ -51,6 +53,16 @@ class Settings(BaseSettings):
     agent_budget_per_run: int = 250
     llm_budget_hard_stop: int = 500
     dedup_cosine_threshold: float = 0.95
+
+    @property
+    def async_database_url(self) -> str:
+        """Convert Railway's postgresql:// URL to asyncpg format."""
+        url = self.database_url
+        if url.startswith("postgresql://") and "+asyncpg" not in url:
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgres://") and "+asyncpg" not in url:
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return url
 
     @property
     def tinyfish_keys_list(self) -> list[str]:

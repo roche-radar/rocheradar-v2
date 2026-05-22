@@ -9,6 +9,7 @@ x-backend-env: &backend-env
     CELERY_RESULT_BACKEND: redis://redis:6379/2
     CHROMA_HOST: chromadb
     CHROMA_PORT: 8000
+    RUN_TRIGGER_URL: http://backend:8008/api/runs/trigger
 
 services:
   postgres:
@@ -20,7 +21,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U roche"]
+      test: ["CMD-SHELL", "pg_isready -U roche -d rocheradar"]
       interval: 10s
       retries: 5
 
