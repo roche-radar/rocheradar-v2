@@ -2,10 +2,67 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import {
   Save, RefreshCw, CheckCircle, XCircle, ChevronDown,
-  Cpu, Calendar, Gauge, Info,
+  Cpu, Calendar, Gauge, Info, Activity, Square,
 } from "lucide-react";
 import { api, type AppSettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+function PipelineStatus() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["current-run"],
+    queryFn: api.runs.current,
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : 30000),
+  });
+  const stopMut = useMutation({
+    mutationFn: api.runs.stop,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["current-run"] }),
+  });
+
+  const running = data?.running;
+  const status = data?.status;
+  const pct = data?.total_targets
+    ? Math.round(((data.targets_processed ?? 0) / data.total_targets) * 100)
+    : null;
+
+  const dot = running
+    ? "bg-green-400 animate-pulse"
+    : status === "success" ? "bg-green-500"
+    : status === "error" ? "bg-red-500"
+    : "bg-gray-300 dark:bg-gray-600";
+
+  const label = running
+    ? `Running${data?.current_target ? ` — ${data.current_target}` : ""}${pct !== null ? ` (${pct}%)` : ""}`
+    : status === "success" ? "Last run completed successfully"
+    : status === "error" ? `Last run failed${data?.error_message ? `: ${data.error_message}` : ""}`
+    : "No active pipeline";
+
+  return (
+    <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f] shadow-sm">
+      <div className="flex items-center gap-3 min-w-0">
+        <Activity size={15} className="text-roche-light shrink-0" />
+        <span className="text-xs font-medium text-gray-500 dark:text-[#94a3b8] shrink-0">Pipeline</span>
+        <span className={cn("w-2 h-2 rounded-full shrink-0", dot)} />
+        <span className="text-sm text-gray-700 dark:text-[#e2e8f0] truncate">{label}</span>
+        {running && pct !== null && (
+          <div className="hidden sm:block w-32 h-1.5 bg-gray-100 dark:bg-[#1e3a5f] rounded-full overflow-hidden shrink-0">
+            <div className="h-full bg-roche-light rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+      </div>
+      {running && (
+        <button
+          onClick={() => stopMut.mutate()}
+          disabled={stopMut.isPending}
+          className="ml-4 shrink-0 flex items-center gap-1 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+        >
+          <Square size={11} />
+          Stop
+        </button>
+      )}
+    </div>
+  );
+}
 
 const PROVIDER_NOTES: Record<string, string> = {
   vertex:     "GCP service account / ADC. Set GOOGLE_APPLICATION_CREDENTIALS in .env",
@@ -81,6 +138,8 @@ export default function SettingsPage() {
           Configure the pipeline, LLM provider, and schedule.
         </p>
       </div>
+
+      <PipelineStatus />
 
       {/* ── 2-column grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
