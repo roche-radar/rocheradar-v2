@@ -2,7 +2,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -211,3 +211,60 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)):
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return _run_to_out(run)
+
+
+@router.post("/reset-all")
+async def reset_all(db: AsyncSession = Depends(get_db)):
+    """Delete all operational data (posts, insights, summaries, runs, blobs) — keeps targets and settings."""
+    import os
+    from app.models import ExtractedInsight, PersonSummary, ScrapedPost
+    from app.config import get_settings
+
+    # 1. DB: delete in FK-safe order
+    await db.execute(delete(ExtractedInsight))
+    await db.execute(delete(PersonSummary))
+    await db.execute(delete(ScrapedPost))
+    await db.execute(delete(RunLog))
+    await db.commit()
+
+    # 2. Vercel Blob: delete all reports/ blobs
+    blob_deleted = 0
+    settings = get_settings()
+    if settings.vercel_blob_token:
+        try:
+            import vercel_blob
+            prev = os.environ.get("BLOB_READ_WRITE_TOKEN")
+            os.environ["BLOB_READ_WRITE_TOKEN"] = settings.vercel_blob_token
+            try:
+                cursor = None
+                while True:
+                    opts: dict = {"prefix": "reports/", "limit": 1000}
+                    if cursor:
+                        opts["cursor"] = cursor
+                    result = vercel_blob.list(opts)
+                    blobs = result.get("blobs", []) if isinstance(result, dict) else []
+                    for b in blobs:
+                        vercel_blob.delete(b["url"])
+                        blob_deleted += 1
+                    if not result.get("hasMore"):
+                        break
+                    cursor = result.get("cursor")
+            finally:
+                if prev is None:
+                    os.environ.pop("BLOB_READ_WRITE_TOKEN", None)
+                else:
+                    os.environ["BLOB_READ_WRITE_TOKEN"] = prev
+        except Exception as exc:
+            pass  # non-fatal — DB is already clean
+
+    # 3. ChromaDB: drop collection
+    chroma_reset = False
+    try:
+        import chromadb
+        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+        client.delete_collection(settings.chroma_collection)
+        chroma_reset = True
+    except Exception:
+        pass
+
+    return {"db_cleared": True, "blobs_deleted": blob_deleted, "chroma_reset": chroma_reset}
