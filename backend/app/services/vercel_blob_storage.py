@@ -32,6 +32,7 @@ def _put(pathname: str, body: bytes, token: str) -> str:
             options={
                 "contentType": "application/pdf",
                 "addRandomSuffix": "false",
+                "allowOverwrite": "true",
                 "cacheControlMaxAge": "31536000",
             },
         )
