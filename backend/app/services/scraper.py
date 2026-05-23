@@ -569,11 +569,14 @@ class ScrapeService:
         ))[:5]  # cap at 5 agent calls per target
 
         rescued = 0
+        loop = asyncio.get_running_loop()
         logger.info("scrape.wave2.start", target=name, urls=len(agent_targets))
         for url in agent_targets:
             if ctx.should_stop or not _agent_can_consume(ctx.run_id):
                 break
-            result = _process_url_agent(url, target_id, idempotency_key, ctx.run_id, self._dedup)
+            result = await loop.run_in_executor(
+                None, _process_url_agent, url, target_id, idempotency_key, ctx.run_id, self._dedup
+            )
             if result == "new":
                 rescued += 1
 
