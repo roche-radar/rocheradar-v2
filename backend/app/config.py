@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Sentry
     sentry_dsn: str = ""
 
+    # Vercel Blob storage
+    vercel_blob_token: str = ""
+
     # App
     secret_key: str = "changeme-at-least-32-chars-long!!"
     environment: str = "development"

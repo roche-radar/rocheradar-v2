@@ -452,8 +452,28 @@ class PDFService:
         HTML(string=html_doc).write_pdf(str(pdf_path))
         _validate_pdf(pdf_path)
 
+        # Upload to Vercel Blob if token configured
+        vercel_url = None
+        if settings.vercel_blob_token:
+            try:
+                from app.services.vercel_blob_storage import upload_pdf_to_vercel_blob
+                pdf_binary = pdf_path.read_bytes()
+                vercel_url = upload_pdf_to_vercel_blob(
+                    pdf_binary=pdf_binary,
+                    target_name=safe_name,
+                    run_date=date.fromisoformat(today),
+                    vercel_token=settings.vercel_blob_token,
+                )
+                logger.info("pdf.target_uploaded_to_blob", target=target.name, url=vercel_url)
+            except Exception as e:
+                logger.warning("pdf.target_blob_upload_failed", target=target.name, error=str(e))
+                # Continue with local path on upload failure — don't block the run
+
+        result = {"path": str(pdf_path)}
+        if vercel_url:
+            result["vercel_url"] = vercel_url
         logger.info("pdf.target_generated", target=target.name, path=str(pdf_path), insights=count)
-        return {"path": str(pdf_path)}
+        return result
 
     # ── Daily summary ──────────────────────────────────────────────────────────
 
@@ -594,5 +614,24 @@ class PDFService:
         HTML(string=html_doc).write_pdf(str(pdf_path))
         _validate_pdf(pdf_path)
 
+        # Upload to Vercel Blob if token configured
+        vercel_url = None
+        if settings.vercel_blob_token:
+            try:
+                from app.services.vercel_blob_storage import upload_daily_summary_to_vercel_blob
+                pdf_binary = pdf_path.read_bytes()
+                vercel_url = upload_daily_summary_to_vercel_blob(
+                    pdf_binary=pdf_binary,
+                    run_date=date.fromisoformat(today),
+                    vercel_token=settings.vercel_blob_token,
+                )
+                logger.info("pdf.daily_uploaded_to_blob", url=vercel_url)
+            except Exception as e:
+                logger.warning("pdf.daily_blob_upload_failed", error=str(e))
+                # Continue with local path on upload failure — don't block the run
+
+        result = {"path": str(pdf_path)}
+        if vercel_url:
+            result["vercel_url"] = vercel_url
         logger.info("pdf.daily_generated", path=str(pdf_path), insights=total_insights)
-        return {"path": str(pdf_path)}
+        return result
