@@ -31,7 +31,10 @@ export default function Agent() {
 
   const clearMut = useMutation({
     mutationFn: api.agent.clearHistory,
-    onSuccess: () => { setMessages([]); qc.invalidateQueries({ queryKey: ["agent-history"] }); },
+    onSuccess: () => {
+      setMessages([]);
+      qc.setQueryData(["agent-history"], []);
+    },
   });
 
   useEffect(() => {

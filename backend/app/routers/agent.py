@@ -57,7 +57,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     # run it in a thread pool to avoid "event loop already running" from this async context
     loop = asyncio.get_event_loop()
     try:
-        reply = await loop.run_in_executor(None, partial(call_pro, messages, max_tokens=1024))
+        reply = await loop.run_in_executor(None, partial(call_pro, messages, max_tokens=4096))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM call failed: {str(exc)[:200]}")
 
