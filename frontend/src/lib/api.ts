@@ -110,7 +110,7 @@ export const api = {
 
   reports: {
     latest: (limit = 20) => req<Insight[]>(`/reports/latest?limit=${limit}`),
-    list: () => req<{ path: string; name: string; size: number }[]>("/reports/"),
+    list: () => req<{ path: string; name: string; size: number; url: string; uploadedAt?: string }[]>("/reports/"),
   },
 
   settings: {
