@@ -24,6 +24,16 @@ celery_app = Celery(
     ],
 )
 
+# Force-import each task module so all @celery_app.task decorators register
+# before workers come online. Belt-and-suspenders with the `include=` list above —
+# the include alone has been observed to silently skip modules.
+import app.tasks.scrape          # noqa: E402,F401
+import app.tasks.llm             # noqa: E402,F401
+import app.tasks.pdf             # noqa: E402,F401
+import app.tasks.embed           # noqa: E402,F401
+import app.tasks.scheduler       # noqa: E402,F401
+import app.tasks.maintenance     # noqa: E402,F401
+
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

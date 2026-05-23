@@ -153,6 +153,7 @@ async def stop_run(db: AsyncSession = Depends(get_db)):
     for r in runs:
         r.status = RunStatus.cancelled
         r.completed_at = now
+        r.current_target = None
         if r.celery_task_id:
             task_ids.append(r.celery_task_id)
     await db.commit()

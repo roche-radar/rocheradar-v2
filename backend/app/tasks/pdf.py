@@ -86,6 +86,7 @@ def _mark_run_finished(run_id: int, status: str, error_message: str | None = Non
                 return
             run.status = status
             run.completed_at = datetime.now(timezone.utc)
+            run.current_target = None   # ← clear ONLY when the run truly ends
             if error_message:
                 run.error_message = error_message
             await sess.commit()

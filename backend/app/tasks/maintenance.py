@@ -60,6 +60,7 @@ async def _reap() -> dict:
                 "likely worker hang or lost task"
             )
             run.completed_at = datetime.now(timezone.utc)
+            run.current_target = None
             reaped.append(run.id)
             if run.celery_task_id:
                 revoked_ids.append(run.celery_task_id)

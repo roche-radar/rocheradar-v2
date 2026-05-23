@@ -56,7 +56,12 @@ def scrape_target(self, target_id: int, run_id: int, idempotency_key: str) -> di
         log.info("scrape_target.done", new_posts=new_posts,
                  needs_rescue=result.get("needs_rescue", False))
 
-        patch_run(run_id, **{"+new_posts_found": new_posts}, current_target=None)
+        # NOTE: don't clear current_target=None here.
+        # All targets run in parallel under the chord+group; clearing it would race
+        # with other still-running workers and make the dashboard show "initialising..."
+        # while targets are actively being scraped. The final clear happens in
+        # _mark_run_finished (generate_daily_summary_pdf) when the run truly ends.
+        patch_run(run_id, **{"+new_posts_found": new_posts, "+targets_processed": 1})
 
         # Register for Wave 2 if no posts found in Wave 1
         if result.get("needs_rescue"):
