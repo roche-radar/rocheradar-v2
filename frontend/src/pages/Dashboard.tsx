@@ -216,7 +216,19 @@ export default function Dashboard() {
                   {topics.top_topics.slice(0, 8).map((t) => (
                     <div key={t.topic} className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate">{t.topic}</div>
+                        {t.url ? (
+                          <a
+                            href={t.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-roche-light hover:text-roche-blue hover:underline truncate block"
+                            title={t.topic}
+                          >
+                            {t.topic}
+                          </a>
+                        ) : (
+                          <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate">{t.topic}</div>
+                        )}
                         <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
                           <div className="h-1.5 bg-roche-light rounded-full"
                             style={{ width: `${(t.count / topics.top_topics[0].count) * 100}%` }} />
@@ -270,7 +282,7 @@ function InsightCard({ insight }: { insight: Insight }) {
         </span>
       </div>
       <div className="flex items-center justify-between mt-2">
-        <span className="text-xs text-gray-400">{formatDateTime(insight.extracted_at)}</span>
+        <span className="text-xs text-gray-400">{insight.published_date ?? formatDateTime(insight.extracted_at)}</span>
         {insight.source_url && (
           <a
             href={insight.source_url}

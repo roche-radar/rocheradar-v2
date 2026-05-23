@@ -81,7 +81,7 @@ export interface TopicsData {
   period_days: number;
   total: number;
   categories: { name: string; count: number }[];
-  top_topics: { topic: string; count: number }[];
+  top_topics: { topic: string; count: number; url?: string | null }[];
   sentiment: { name: string; count: number }[];
   top_kols: { name: string; count: number }[];
 }
@@ -105,6 +105,7 @@ export const api = {
     trigger: (limit?: number) =>
       req<{ run_id: number }>("/runs/trigger", { method: "POST", body: JSON.stringify({ limit }) }),
     stop: () => req<{ stopped: boolean }>("/runs/stop", { method: "POST" }),
+    generatePdfs: () => req<{ status: string; run_id: number }>("/runs/generate-pdfs", { method: "POST" }),
   },
 
   reports: {

@@ -28,13 +28,14 @@ async def list_pdfs():
 
 @router.get("/latest")
 async def latest_insights(limit: int = 20, db: AsyncSession = Depends(get_db)):
-    """Return most recent extracted insights across all targets."""
+    """Return most recent extracted insights across all targets, sorted by post published date."""
     from app.models import ScrapedPost
+    from sqlalchemy import case, nulls_last
     rows = await db.execute(
         select(ExtractedInsight, Target, ScrapedPost)
         .join(Target, ExtractedInsight.target_id == Target.id)
         .join(ScrapedPost, ExtractedInsight.scraped_post_id == ScrapedPost.id)
-        .order_by(desc(ExtractedInsight.extracted_at))
+        .order_by(nulls_last(desc(ScrapedPost.published_date)))
         .limit(limit)
     )
     result = []

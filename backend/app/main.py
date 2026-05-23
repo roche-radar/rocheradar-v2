@@ -147,7 +147,7 @@ async def health():
 async def stats_topics(days: int = 7):
     """Return top discussed topics and categories for the dashboard graphs."""
     from app.database import AsyncSessionLocal
-    from app.models import ExtractedInsight, Target
+    from app.models import ExtractedInsight, Target, ScrapedPost
     from sqlalchemy import select, func, desc
     from datetime import datetime, timezone, timedelta
     from collections import Counter
@@ -156,8 +156,9 @@ async def stats_topics(days: int = 7):
 
     async with AsyncSessionLocal() as sess:
         rows = await sess.execute(
-            select(ExtractedInsight, Target)
+            select(ExtractedInsight, Target, ScrapedPost)
             .join(Target, ExtractedInsight.target_id == Target.id)
+            .join(ScrapedPost, ExtractedInsight.scraped_post_id == ScrapedPost.id)
             .where(ExtractedInsight.extracted_at >= since)
             .order_by(desc(ExtractedInsight.extracted_at))
         )
@@ -166,14 +167,17 @@ async def stats_topics(days: int = 7):
     # Category breakdown
     cat_counts: Counter = Counter()
     topic_counts: Counter = Counter()
+    topic_urls: dict = {}  # first URL seen per topic
     sentiment_counts: Counter = Counter({"positive": 0, "neutral": 0, "negative": 0})
     kol_counts: Counter = Counter()
 
-    for ins, target in insights:
+    for ins, target, post in insights:
         cat = (ins.category or "other").replace("_", " ").title()
         cat_counts[cat] += 1
         if ins.topic:
             topic_counts[ins.topic] += 1
+            if ins.topic not in topic_urls and post.source_url:
+                topic_urls[ins.topic] = post.source_url
         sentiment_counts[(ins.sentiment or "neutral").lower()] += 1
         kol_counts[target.name] += 1
 
@@ -185,7 +189,7 @@ async def stats_topics(days: int = 7):
             for k, v in cat_counts.most_common(8)
         ],
         "top_topics": [
-            {"topic": k, "count": v}
+            {"topic": k, "count": v, "url": topic_urls.get(k)}
             for k, v in topic_counts.most_common(10)
         ],
         "sentiment": [

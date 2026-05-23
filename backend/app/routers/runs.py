@@ -177,6 +177,34 @@ async def list_runs(db: AsyncSession = Depends(get_db)):
     return [_run_to_out(r) for r in rows.scalars().all()]
 
 
+@router.post("/generate-pdfs")
+async def generate_pdfs(db: AsyncSession = Depends(get_db)):
+    """Regenerate PDFs for all active targets from existing insights — no scraping needed."""
+    from celery import group, chain
+    from app.tasks.pdf import generate_target_pdf, generate_daily_summary_pdf
+    from app.models import RunLog, RunStatus
+
+    rows = await db.execute(select(Target).where(Target.active == True).order_by(Target.name))
+    targets = rows.scalars().all()
+    if not targets:
+        raise HTTPException(status_code=422, detail="No active targets configured")
+
+    run = RunLog(
+        status=RunStatus.running,
+        total_targets=len(targets),
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+
+    from celery import chord
+    pdf_tasks = [generate_target_pdf.si(t.id, run.id) for t in targets]
+    pipeline = chord(group(*pdf_tasks), generate_daily_summary_pdf.si(run.id))
+    pipeline.apply_async()
+
+    return {"status": "started", "run_id": run.id}
+
+
 @router.get("/{run_id}", response_model=RunOut)
 async def get_run(run_id: int, db: AsyncSession = Depends(get_db)):
     run = await db.get(RunLog, run_id)

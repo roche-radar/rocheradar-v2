@@ -1,12 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
-import { Download, Eye, FileText, X, ExternalLink } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Download, Eye, FileText, X, ExternalLink, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useState } from "react";
 
 export default function Reports() {
+  const qc = useQueryClient();
   const { data: pdfs, isLoading, isError, error } = useQuery({ queryKey: ["pdfs"], queryFn: api.reports.list });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string>("");
+  const [genMsg, setGenMsg] = useState<string | null>(null);
+
+  const genPdfsMut = useMutation({
+    mutationFn: api.runs.generatePdfs,
+    onSuccess: () => {
+      setGenMsg("PDF generation started — refresh in a moment to see new files.");
+      setTimeout(() => { qc.invalidateQueries({ queryKey: ["pdfs"] }); setGenMsg(null); }, 8000);
+    },
+  });
 
   function openPreview(path: string, name: string) {
     const encoded = encodeURI(path);
@@ -16,7 +26,23 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Reports</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Reports</h1>
+        <button
+          onClick={() => genPdfsMut.mutate()}
+          disabled={genPdfsMut.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light disabled:opacity-50"
+          title="Regenerate PDFs from existing insights without re-scraping"
+        >
+          <RefreshCw size={14} className={genPdfsMut.isPending ? "animate-spin" : ""} />
+          {genPdfsMut.isPending ? "Generating…" : "Generate PDFs"}
+        </button>
+      </div>
+      {genMsg && (
+        <div className="text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2">
+          {genMsg}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
