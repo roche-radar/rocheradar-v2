@@ -35,6 +35,28 @@ from app.services.run_context import RunContext
 logger = structlog.get_logger(__name__)
 settings = get_settings()
 
+
+def _run_in_thread(coro):
+    """Run an async coroutine from a sync context with its own dedicated event loop.
+
+    Replaces asyncio.run() at call sites that may execute inside a thread which
+    has already run an async block (e.g. ThreadPoolExecutor threads, or Celery
+    tasks that chain into other async calls). asyncio.run() refuses to start
+    when any loop is currently running in the thread; this helper creates a
+    fresh loop, runs the coroutine to completion, then tears the loop down so
+    no state leaks between calls.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.close()
+        finally:
+            asyncio.set_event_loop(None)
+
+
 _FRESHNESS_DAYS   = 90
 _EXTENDED_DAYS    = 365
 _FETCH_WORKERS    = 5   # parallel URL fetches per target
@@ -370,7 +392,7 @@ async def _save_post_and_extract(
 def _save_post_sync(target_id, url, content, idempotency_key, run_id) -> tuple[bool, int | None]:
     """Thread-safe wrapper — runs _save_post_and_extract in a fresh event loop.
     Safe to call from ThreadPoolExecutor threads (no event loop nesting)."""
-    return asyncio.run(_save_post_and_extract(target_id, url, content, idempotency_key, run_id))
+    return _run_in_thread(_save_post_and_extract(target_id, url, content, idempotency_key, run_id))
 
 
 # ── Per-URL worker — FREE FETCH ONLY (no agent in Pass 1) ────────────────
@@ -427,7 +449,7 @@ class ScrapeService:
         self._dedup = DeduplicatorService()
 
     def scrape(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
-        return asyncio.run(self._run(target_id, ctx, idempotency_key))
+        return _run_in_thread(self._run(target_id, ctx, idempotency_key))
 
     async def _run(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
         from app.database import CelerySessionLocal
@@ -524,7 +546,7 @@ class ScrapeService:
                idempotency_key: str, bot_blocked_urls: list[str] | None = None) -> dict:
         """Agent-only rescue for a 0-post target from Wave 1.
         Tries known_urls + any bot-blocked URLs from Wave 1."""
-        return asyncio.run(self._rescue_async(target_id, ctx, idempotency_key, bot_blocked_urls or []))
+        return _run_in_thread(self._rescue_async(target_id, ctx, idempotency_key, bot_blocked_urls or []))
 
     async def _rescue_async(self, target_id: int, ctx: RunContext,
                             idempotency_key: str, bot_blocked: list[str]) -> dict:
@@ -602,7 +624,7 @@ class ScrapeService:
         return len(candidates)
 
     def rescue_scrape(self, target_id: int, ctx: RunContext) -> dict:
-        return asyncio.run(self._standalone_rescue(target_id, ctx))
+        return _run_in_thread(self._standalone_rescue(target_id, ctx))
 
     async def _standalone_rescue(self, target_id: int, ctx: RunContext) -> dict:
         from app.database import CelerySessionLocal
