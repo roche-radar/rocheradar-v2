@@ -75,7 +75,8 @@ export default function Targets() {
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : (
         <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f] overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-100 dark:border-[#1e3a5f] text-left text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-4 py-3">Name</th>
@@ -117,6 +118,7 @@ export default function Targets() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

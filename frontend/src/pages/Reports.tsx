@@ -140,7 +140,8 @@ export default function Reports() {
             <div className="space-y-2">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Individual Reports</h2>
               <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f] overflow-hidden">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[500px]">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-[#1e3a5f] text-left text-xs text-gray-500 uppercase tracking-wider">
                       <th className="px-4 py-3">File</th>
@@ -176,6 +177,7 @@ export default function Reports() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}
