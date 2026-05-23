@@ -12,7 +12,13 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.database import Base  # noqa: E402
+from app.config import get_settings  # noqa: E402
 import app.models  # noqa: F401 — ensure all models are imported
+
+# Override alembic.ini's sqlalchemy.url with the runtime DATABASE_URL env var.
+# Without this, alembic falls back to the localhost default in alembic.ini and
+# the deploy crashes with "Connect call failed ('127.0.0.1', 5432)".
+config.set_main_option("sqlalchemy.url", get_settings().async_database_url)
 
 target_metadata = Base.metadata
 
