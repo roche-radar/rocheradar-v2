@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Eye, FileText, X, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 type PdfFile = { path: string; name: string; size: number; url: string; uploadedAt?: string };
 
@@ -12,6 +12,12 @@ export default function Reports() {
   const [previewName, setPreviewName] = useState<string>("");
   const [genMsg, setGenMsg] = useState<string | null>(null);
   const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set());
+  const [filterDate, setFilterDate] = useState("");
+
+  const dates = useMemo(() => {
+    const d = new Set((pdfs ?? []).map(p => p.path.split("/")[1]).filter(Boolean));
+    return [...d].sort().reverse();
+  }, [pdfs]);
 
   const genPdfsMut = useMutation({
     mutationFn: api.runs.generatePdfs,
@@ -21,8 +27,12 @@ export default function Reports() {
     },
   });
 
-  const summaries: PdfFile[] = (pdfs ?? []).filter(p => p.name.startsWith("Daily_Summary_"));
-  const targets: PdfFile[] = (pdfs ?? []).filter(p => !p.name.startsWith("Daily_Summary_"));
+  const summaries: PdfFile[] = useMemo(() =>
+    (pdfs ?? []).filter(p => p.name.startsWith("Daily_Summary_") && (!filterDate || p.path.includes(filterDate))),
+    [pdfs, filterDate]);
+  const targets: PdfFile[] = useMemo(() =>
+    (pdfs ?? []).filter(p => !p.name.startsWith("Daily_Summary_") && (!filterDate || p.path.includes(filterDate))),
+    [pdfs, filterDate]);
 
   function toggleSummary(path: string) {
     setExpandedSummaries(prev => {
@@ -34,8 +44,18 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Reports</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0] mr-auto">Reports</h1>
+        {dates.length > 0 && (
+          <select
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-3 py-2 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+          >
+            <option value="">All dates</option>
+            {dates.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        )}
         <button
           onClick={() => genPdfsMut.mutate()}
           disabled={genPdfsMut.isPending}

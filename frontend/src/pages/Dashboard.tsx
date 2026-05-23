@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -44,7 +44,20 @@ export default function Dashboard() {
     queryFn: api.runs.current,
     refetchInterval: (q) => (q.state.data?.running ? 2000 : 10_000),
   });
-  const { data: insights } = useQuery({ queryKey: ["latest-insights"], queryFn: () => api.reports.latest(15) });
+  const [filterTarget, setFilterTarget] = useState("");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterSentiment, setFilterSentiment] = useState("");
+
+  const { data: insights } = useQuery({ queryKey: ["latest-insights"], queryFn: () => api.reports.latest(100) });
+
+  const targets = useMemo(() => [...new Set((insights ?? []).map(i => i.target_name))].sort(), [insights]);
+  const categories = useMemo(() => [...new Set((insights ?? []).map(i => i.category).filter(Boolean))].sort(), [insights]);
+
+  const filtered = useMemo(() => (insights ?? []).filter(i =>
+    (!filterTarget || i.target_name === filterTarget) &&
+    (!filterCategory || i.category === filterCategory) &&
+    (!filterSentiment || i.sentiment === filterSentiment)
+  ), [insights, filterTarget, filterCategory, filterSentiment]);
   const { data: topics } = useQuery({
     queryKey: ["topics", period],
     queryFn: () => api.topics(period),
@@ -246,12 +259,64 @@ export default function Dashboard() {
 
       {/* Recent insights feed */}
       <div>
-        <h2 className="text-lg font-semibold mb-3">Recent Findings</h2>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <h2 className="text-lg font-semibold mr-1">Recent Findings</h2>
+          <Filter size={13} className="text-gray-400 shrink-0" />
+
+          {/* Target filter */}
+          <select
+            value={filterTarget}
+            onChange={e => setFilterTarget(e.target.value)}
+            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-2 py-1 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+          >
+            <option value="">All KOLs</option>
+            {targets.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          {/* Category filter */}
+          <select
+            value={filterCategory}
+            onChange={e => setFilterCategory(e.target.value)}
+            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-2 py-1 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+          >
+            <option value="">All categories</option>
+            {categories.map(c => <option key={c} value={c}>{c?.replace(/_/g, " ")}</option>)}
+          </select>
+
+          {/* Sentiment filter */}
+          {["positive", "neutral", "negative"].map(s => (
+            <button
+              key={s}
+              onClick={() => setFilterSentiment(f => f === s ? "" : s)}
+              className={cn(
+                "text-xs px-2 py-1 rounded-full border transition-colors",
+                filterSentiment === s
+                  ? SENTIMENT_COLORS[s] + " border-transparent font-medium"
+                  : "border-gray-200 dark:border-[#1e3a5f] text-gray-500 hover:border-gray-300"
+              )}
+            >
+              {s}
+            </button>
+          ))}
+
+          {(filterTarget || filterCategory || filterSentiment) && (
+            <button
+              onClick={() => { setFilterTarget(""); setFilterCategory(""); setFilterSentiment(""); }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              clear
+            </button>
+          )}
+          {insights?.length ? (
+            <span className="text-xs text-gray-400 ml-auto">{filtered.length} / {insights.length}</span>
+          ) : null}
+        </div>
+
         <div className="space-y-3">
-          {insights?.map((ins) => <InsightCard key={ins.id} insight={ins} />)}
-          {!insights?.length && (
+          {filtered.map((ins) => <InsightCard key={ins.id} insight={ins} />)}
+          {!filtered.length && (
             <div className="text-center py-12 text-gray-400">
-              No insights yet — run the pipeline to collect data.
+              {insights?.length ? "No results match the filters." : "No insights yet — run the pipeline to collect data."}
             </div>
           )}
         </div>
@@ -264,6 +329,10 @@ function InsightCard({ insight }: { insight: Insight }) {
   const sourceName = insight.source_name || (insight.source_url
     ? new URL(insight.source_url).hostname.replace("www.", "")
     : null);
+  const today = new Date().toISOString().slice(0, 10);
+  const displayDate = insight.published_date && insight.published_date <= today
+    ? insight.published_date
+    : formatDateTime(insight.extracted_at);
 
   return (
     <div className="bg-white dark:bg-[#111827] rounded-xl p-4 shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
@@ -282,7 +351,7 @@ function InsightCard({ insight }: { insight: Insight }) {
         </span>
       </div>
       <div className="flex items-center justify-between mt-2">
-        <span className="text-xs text-gray-400">{insight.published_date ?? formatDateTime(insight.extracted_at)}</span>
+        <span className="text-xs text-gray-400">{displayDate}</span>
         {insight.source_url && (
           <a
             href={insight.source_url}
