@@ -1,11 +1,27 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "DOCKERFILE"
-  },
-  "deploy": {
-    "startCommand": "sh -c \"alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT\"",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+  "services": {
+    "backend": {
+      "build": {
+        "builder": "DOCKERFILE",
+        "context": "backend"
+      },
+      "deploy": {
+        "startCommand": "sh -c \"alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT\"",
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 3
+      }
+    },
+    "worker": {
+      "build": {
+        "builder": "DOCKERFILE",
+        "context": "backend"
+      },
+      "deploy": {
+        "startCommand": "sh -c \"celery -A app.tasks.celery_app.celery_app worker -Q scrape,llm,pdf,embed --concurrency=4 --loglevel=info -n worker@railway\"",
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 3
+      }
+    }
   }
 }
