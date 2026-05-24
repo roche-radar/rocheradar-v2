@@ -23,9 +23,8 @@ class AppSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
 
     # LLM routing
-    llm_provider: Mapped[str] = mapped_column(String(64), default="vertex")
-    llm_pro_model: Mapped[str] = mapped_column(String(128), default="gemini-2.5-pro")
-    llm_flash_model: Mapped[str] = mapped_column(String(128), default="gemini-2.5-flash")
+    llm_provider: Mapped[str] = mapped_column(String(64), default="gemini")
+    llm_model: Mapped[str] = mapped_column(String(128), default="gemini-2.5-flash")
 
     # Provider API key (stored in DB; env var is fallback if empty)
     api_key: Mapped[str | None] = mapped_column(String(512))

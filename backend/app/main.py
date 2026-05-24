@@ -82,18 +82,18 @@ async def _seed_defaults() -> None:
             # Pick the best available provider based on which API key is in .env
             # Priority: Gemini (fast+cheap) → NVIDIA (fallback) → others
             if _settings.gemini_api_key:
-                provider, pro_model, flash_model = "gemini", "gemini-2.5-pro", "gemini-2.5-flash"
+                provider, model = "gemini", "gemini-2.5-flash"
             elif _settings.nvidia_api_key:
-                provider, pro_model, flash_model = "nvidia", "meta/llama-3.3-70b-instruct", "meta/llama-3.3-70b-instruct"
+                provider, model = "nvidia", "meta/llama-3.3-70b-instruct"
             elif _settings.anthropic_api_key:
-                provider, pro_model, flash_model = "anthropic", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"
+                provider, model = "anthropic", "claude-haiku-4-5-20251001"
             elif _settings.openai_api_key:
-                provider, pro_model, flash_model = "openai", "gpt-4o", "gpt-4o-mini"
+                provider, model = "openai", "gpt-4o-mini"
             elif _settings.openrouter_api_key:
-                provider, pro_model, flash_model = "openrouter", "openai/gpt-4o", "openai/gpt-4o-mini"
+                provider, model = "openrouter", "openai/gpt-4o-mini"
             else:
-                provider, pro_model, flash_model = "vertex", "gemini-2.5-pro", "gemini-2.5-flash"
-            sess.add(AppSettings(id=1, llm_provider=provider, llm_pro_model=pro_model, llm_flash_model=flash_model))
+                provider, model = "vertex", "gemini-2.5-flash"
+            sess.add(AppSettings(id=1, llm_provider=provider, llm_model=model))
             await sess.commit()
             logger.info("seeded_app_settings", provider=provider)
 

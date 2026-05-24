@@ -35,8 +35,7 @@ async def _get_or_create(db: AsyncSession) -> AppSettings:
 
 class SettingsOut(BaseModel):
     llm_provider: str
-    llm_pro_model: str
-    llm_flash_model: str
+    llm_model: str
     ollama_base_url: str
     nvidia_base_url: str
     custom_base_url: str | None
@@ -52,8 +51,7 @@ class SettingsOut(BaseModel):
 
 class SettingsUpdate(BaseModel):
     llm_provider: str | None = None
-    llm_pro_model: str | None = None
-    llm_flash_model: str | None = None
+    llm_model: str | None = None
     ollama_base_url: str | None = None
     nvidia_base_url: str | None = None
     custom_base_url: str | None = None
@@ -74,8 +72,7 @@ class TestConnectionRequest(BaseModel):
 def _to_out(s: AppSettings) -> SettingsOut:
     return SettingsOut(
         llm_provider=s.llm_provider,
-        llm_pro_model=s.llm_pro_model,
-        llm_flash_model=s.llm_flash_model,
+        llm_model=s.llm_model,
         ollama_base_url=s.ollama_base_url or "http://localhost:11434",
         nvidia_base_url=s.nvidia_base_url or "https://integrate.api.nvidia.com/v1",
         custom_base_url=s.custom_base_url,
@@ -136,7 +133,7 @@ async def test_connection(body: TestConnectionRequest, db: AsyncSession = Depend
 
     s = await _get_or_create(db)
     provider = body.provider or s.llm_provider
-    model = body.model or s.llm_pro_model
+    model = body.model or s.llm_model
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, partial(_test, provider, model, s))
     if not result["ok"]:

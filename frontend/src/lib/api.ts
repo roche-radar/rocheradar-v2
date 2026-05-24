@@ -62,8 +62,7 @@ export interface Insight {
 
 export interface AppSettings {
   llm_provider: string;
-  llm_pro_model: string;
-  llm_flash_model: string;
+  llm_model: string;
   ollama_base_url: string;
   nvidia_base_url: string;
   custom_base_url: string | null;

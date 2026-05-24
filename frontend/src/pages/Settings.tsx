@@ -110,7 +110,7 @@ export default function SettingsPage() {
   async function testConnection() {
     setTestState("loading"); setTestError("");
     try {
-      await api.settings.testConnection({ provider: form.llm_provider, model: form.llm_pro_model });
+      await api.settings.testConnection({ provider: form.llm_provider, model: form.llm_model });
       setTestState("ok");
     } catch (e: unknown) {
       setTestState("fail");
@@ -208,8 +208,7 @@ export default function SettingsPage() {
             )}
           </div>
 
-          <ModelField label="Pro model" value={form.llm_pro_model ?? ""} onChange={v => set("llm_pro_model", v)} suggestions={models} />
-          <ModelField label="Flash model" value={form.llm_flash_model ?? ""} onChange={v => set("llm_flash_model", v)} suggestions={models} />
+          <ModelField label="Model" value={form.llm_model ?? ""} onChange={v => set("llm_model", v)} suggestions={models} />
 
           {/* Test connection */}
           <div className="flex items-center gap-3 pt-1 border-t border-gray-100 dark:border-[#1e3a5f]/50">

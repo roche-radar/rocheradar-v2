@@ -39,7 +39,10 @@ def _with_blob_token(fn):
 
 @router.get("/")
 async def list_pdfs() -> list[dict[str, Any]]:
-    """List all PDF reports from Vercel Blob storage."""
+    """List all PDF reports — from Vercel Blob in production, local filesystem locally."""
+    if not settings.vercel_blob_token:
+        return _list_local_pdfs()
+
     import vercel_blob
 
     result = _with_blob_token(lambda: vercel_blob.list({"prefix": "reports/", "limit": 1000}))
@@ -59,6 +62,26 @@ async def list_pdfs() -> list[dict[str, Any]]:
         }
         for b in pdfs
     ]
+
+
+def _list_local_pdfs() -> list[dict[str, Any]]:
+    from pathlib import Path
+    reports_dir = Path(settings.reports_dir)
+    if not reports_dir.exists():
+        return []
+    pdfs = sorted(reports_dir.rglob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
+    result = []
+    for p in pdfs:
+        rel = p.relative_to(reports_dir)
+        pathname = f"reports/{rel.as_posix()}"
+        result.append({
+            "path": pathname,
+            "name": p.name,
+            "size": p.stat().st_size,
+            "url": f"/api/reports/local/{rel.as_posix()}",
+            "uploadedAt": None,
+        })
+    return result
 
 
 @router.get("/latest")
@@ -88,6 +111,17 @@ async def latest_insights(limit: int = 20, db: AsyncSession = Depends(get_db)):
         }
         for ins, target, post in rows.all()
     ]
+
+
+@router.get("/local/{file_path:path}")
+async def serve_local_pdf(file_path: str):
+    """Serve a PDF directly from the local filesystem (dev only)."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    pdf_path = Path(settings.reports_dir) / file_path
+    if not pdf_path.exists() or not pdf_path.suffix == ".pdf":
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(pdf_path), media_type="application/pdf")
 
 
 @router.get("/download/{file_path:path}")

@@ -117,7 +117,6 @@ def _call(model_str: str, messages: list[dict], temperature: float, max_tokens: 
 
 
 def _dispatch(
-    use_flash: bool,
     messages: list[dict],
     temperature: float,
     max_tokens: int,
@@ -127,26 +126,19 @@ def _dispatch(
     if provider not in PROVIDERS:
         logger.warning("llm.invalid_provider", provider=provider)
         provider = "gemini"
-    model = ((s.llm_flash_model if use_flash else s.llm_pro_model) if s else None) or (
-        "gemini-2.5-flash" if use_flash else "gemini-2.5-pro"
-    )
+    model = (s.llm_model if s else None) or "gemini-2.5-flash"
     model_str = _model_string(provider, model)
     extra = _extra_kwargs(provider, s)
 
-    logger.debug("llm.dispatch", provider=provider, model=model_str, flash=use_flash)
+    logger.debug("llm.dispatch", provider=provider, model=model_str)
 
     try:
         return _call(model_str, messages, temperature, max_tokens, extra)
     except RateLimitError:
-        raise  # let tenacity handle rate-limit retries, don't bypass to fallback
+        raise
     except Exception as primary_exc:
-        # Auto-fallback to NVIDIA when primary provider fails and NVIDIA key is available
         if provider != "nvidia" and _config.nvidia_api_key:
-            fallback_model = s.llm_flash_model if (use_flash and s) else "meta/llama-3.3-70b-instruct"
-            # Use NVIDIA's default model if the stored model isn't an NVIDIA model
-            if "/" not in fallback_model:
-                fallback_model = "meta/llama-3.3-70b-instruct"
-            fallback_str = _model_string("nvidia", fallback_model)
+            fallback_str = _model_string("nvidia", "meta/llama-3.3-70b-instruct")
             fallback_extra = _extra_kwargs("nvidia", s)
             logger.warning(
                 "llm.fallback_to_nvidia",
@@ -159,14 +151,14 @@ def _dispatch(
         raise
 
 
-def call_pro(messages: list[dict], temperature: float = 0.2, max_tokens: int = 4096) -> str:
-    """Call the configured pro/complex model."""
-    return _dispatch(use_flash=False, messages=messages, temperature=temperature, max_tokens=max_tokens)
+def call_llm(messages: list[dict], temperature: float = 0.2, max_tokens: int = 4096) -> str:
+    """Call the configured model."""
+    return _dispatch(messages=messages, temperature=temperature, max_tokens=max_tokens)
 
 
-def call_flash(messages: list[dict], temperature: float = 0.1, max_tokens: int = 2048) -> str:
-    """Call the configured fast/cheap model."""
-    return _dispatch(use_flash=True, messages=messages, temperature=temperature, max_tokens=max_tokens)
+# Aliases kept for backward compat with existing task imports
+call_pro = call_llm
+call_flash = call_llm
 
 
 # ── Model listing helpers ─────────────────────────────────
