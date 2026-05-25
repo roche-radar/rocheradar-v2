@@ -555,7 +555,7 @@ class ScrapeService:
         # Deduplicated list: known_urls (highest signal) + bot-blocked from Wave 1
         agent_targets = list(dict.fromkeys(
             [u for u in known_urls if u and not _is_binary(u)] + bot_blocked
-        ))[:10]  # cap at 10 agent calls per target
+        ))[:5]  # cap at 5 agent calls per target
 
         rescued = 0
         loop = asyncio.get_running_loop()
