@@ -99,6 +99,8 @@ def _register_for_wave2(run_id: int, target_id: int,
     max_retries=1,
     default_retry_delay=30,
     acks_late=True,
+    soft_time_limit=1800,
+    time_limit=20000,
 )
 def wave2_rescue(self, run_id: int) -> dict:
     """Wave 2 — agent rescue for all targets that got 0 posts in Wave 1.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import structlog
@@ -21,9 +22,11 @@ def _load_prompt(name: str) -> str:
 
 def _strip_fences(raw: str) -> str:
     s = raw.strip()
-    if s.startswith("```"):
-        s = s.split("\n", 1)[-1].rsplit("```", 1)[0]
-    return s.strip()
+    m = re.search(r'```(?:json)?\s*\n(.*?)\n?```', s, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    # Fallback: if response starts with { or [ it's already bare JSON
+    return s
 
 
 class ExtractorService:
@@ -142,7 +145,7 @@ class ExtractorService:
         ]
 
         try:
-            raw = call_pro(messages, max_tokens=2048)
+            raw = call_pro(messages, max_tokens=4096)
         except Exception as exc:
             logger.warning("summarise.llm_failed", target_id=target_id, exc=str(exc))
             return {"error": str(exc)}

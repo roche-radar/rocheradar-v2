@@ -156,21 +156,21 @@ openai  = env.get('OPENAI_API_KEY', '')
 anthropic = env.get('ANTHROPIC_API_KEY', '')
 
 if gemini:
-    provider, pro, flash = 'gemini', 'gemini-2.5-pro', 'gemini-2.5-flash'
+    provider, model = 'gemini', 'gemini-2.5-flash'
 elif nvidia:
-    provider, pro, flash = 'nvidia', 'meta/llama-3.3-70b-instruct', 'meta/llama-3.3-70b-instruct'
+    provider, model = 'nvidia', 'meta/llama-3.3-70b-instruct'
 elif anthropic:
-    provider, pro, flash = 'anthropic', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'
+    provider, model = 'anthropic', 'claude-haiku-4-5-20251001'
 elif openai:
-    provider, pro, flash = 'openai', 'gpt-4o', 'gpt-4o-mini'
+    provider, model = 'openai', 'gpt-4o-mini'
 else:
-    provider, pro, flash = 'vertex', 'gemini-2.5-pro', 'gemini-2.5-flash'
+    provider, model = 'vertex', 'gemini-2.5-flash'
 
 import urllib.request, json
-body = json.dumps({'llm_provider': provider, 'llm_pro_model': pro, 'llm_flash_model': flash}).encode()
+body = json.dumps({'llm_provider': provider, 'llm_model': model}).encode()
 req = urllib.request.Request('http://localhost:8009/api/settings/', data=body, headers={'Content-Type': 'application/json'}, method='POST')
 urllib.request.urlopen(req)
-print(f'    Provider: {provider} | Flash: {flash}')
+print(f'    Provider: {provider} | Model: {model}')
 " 2>/dev/null
 ok "LLM provider configured"
 
@@ -213,7 +213,7 @@ echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}${BOLD}  All systems running — clean slate${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-PROVIDER=$(curl -s http://localhost:8009/api/settings/ 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['llm_provider']+' / '+d['llm_flash_model'])" 2>/dev/null || echo "unknown")
+PROVIDER=$(curl -s http://localhost:8009/api/settings/ 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['llm_provider']+' / '+d['llm_model'])" 2>/dev/null || echo "unknown")
 TARGETS=$(curl -s http://localhost:8009/api/targets/ 2>/dev/null | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo "?")
 echo -e "  ${BOLD}Frontend :${NC}  http://localhost:5173"
 echo -e "  ${BOLD}Backend  :${NC}  http://localhost:8009"

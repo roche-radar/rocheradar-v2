@@ -47,17 +47,30 @@ export default function Dashboard() {
   const [filterTarget, setFilterTarget] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterSentiment, setFilterSentiment] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
 
   const { data: insights } = useQuery({ queryKey: ["latest-insights"], queryFn: () => api.reports.latest(100) });
 
   const targets = useMemo(() => [...new Set((insights ?? []).map(i => i.target_name))].sort(), [insights]);
   const categories = useMemo(() => [...new Set((insights ?? []).map(i => i.category).filter(Boolean))].sort(), [insights]);
 
-  const filtered = useMemo(() => (insights ?? []).filter(i =>
-    (!filterTarget || i.target_name === filterTarget) &&
-    (!filterCategory || i.category === filterCategory) &&
-    (!filterSentiment || i.sentiment === filterSentiment)
-  ), [insights, filterTarget, filterCategory, filterSentiment]);
+  const oneYearAgo = useMemo(() => {
+    const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10);
+  }, []);
+
+  const filtered = useMemo(() => {
+    setPage(0);
+    return (insights ?? []).filter(i =>
+      (!filterTarget || i.target_name === filterTarget) &&
+      (!filterCategory || i.category === filterCategory) &&
+      (!filterSentiment || i.sentiment === filterSentiment) &&
+      (!i.published_date || i.published_date >= oneYearAgo)
+    );
+  }, [insights, filterTarget, filterCategory, filterSentiment, oneYearAgo]);
+
+  const paginated = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const { data: topics } = useQuery({
     queryKey: ["topics", period],
     queryFn: () => api.topics(period),
@@ -313,13 +326,33 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-3">
-          {filtered.map((ins) => <InsightCard key={ins.id} insight={ins} />)}
+          {paginated.map((ins) => <InsightCard key={ins.id} insight={ins} />)}
           {!filtered.length && (
             <div className="text-center py-12 text-gray-400">
               {insights?.length ? "No results match the filters." : "No insights yet — run the pipeline to collect data."}
             </div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-[#1e3a5f]/50">
+            <button
+              onClick={() => setPage(p => p - 1)}
+              disabled={page === 0}
+              className="px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-gray-500 dark:text-[#94a3b8] hover:border-roche-light hover:text-roche-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              ← Prev
+            </button>
+            <span className="text-xs text-gray-400">Page {page + 1} of {totalPages}</span>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={page >= totalPages - 1}
+              className="px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-gray-500 dark:text-[#94a3b8] hover:border-roche-light hover:text-roche-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
