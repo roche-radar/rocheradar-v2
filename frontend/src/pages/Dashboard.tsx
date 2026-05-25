@@ -147,16 +147,16 @@ export default function Dashboard() {
 
       {/* Intelligence Analytics */}
       <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 dark:border-[#1e3a5f]">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5 pb-3 border-b border-gray-100 dark:border-[#1e3a5f]">
           <div className="flex items-center gap-2">
-            <BarChart2 size={18} className="text-roche-light" />
-            <h2 className="font-semibold text-sm">Intelligence Analytics</h2>
+            <BarChart2 size={18} className="text-roche-light shrink-0" />
+            <h2 className="font-semibold text-sm whitespace-nowrap">Intelligence Analytics</h2>
           </div>
           <div className="flex gap-1">
             {PERIOD_OPTIONS.map((o) => (
               <button key={o.value} onClick={() => setPeriod(o.value)}
                 className={cn(
-                  "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                  "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap",
                   period === o.value
                     ? "bg-roche-blue text-white"
                     : "text-gray-500 hover:text-roche-light"

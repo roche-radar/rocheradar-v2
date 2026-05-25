@@ -24,16 +24,36 @@ export default function Targets() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["targets"] }),
   });
 
+  const bulkToggle = async (active: boolean) => {
+    if (!targets) return;
+    await Promise.all(targets.map(t => api.targets.update(t.id, { active })));
+    qc.invalidateQueries({ queryKey: ["targets"] });
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Targets</h1>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light"
-        >
-          <Plus size={16} /> Add Target
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => bulkToggle(true)}
+            className="px-3 py-1.5 text-xs border border-green-300 dark:border-green-800 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+          >
+            Activate All
+          </button>
+          <button
+            onClick={() => bulkToggle(false)}
+            className="px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] text-gray-500 dark:text-[#94a3b8] rounded-lg hover:bg-gray-50 dark:hover:bg-[#1e3a5f]/30 transition-colors"
+          >
+            Deactivate All
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light"
+          >
+            <Plus size={16} /> Add Target
+          </button>
+        </div>
       </div>
 
       {showAdd && (

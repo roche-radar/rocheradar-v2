@@ -296,7 +296,7 @@ export default function SettingsPage() {
 
           {/* Budget */}
           <Card icon={<Gauge size={16} />} title="Pipeline Budget" subtitle="Limit API calls per run">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Agent calls / run">
                 <input type="number" min={1} value={form.agent_budget_per_run ?? 250}
                   onChange={e => set("agent_budget_per_run", Number(e.target.value))} className={input} />
@@ -314,10 +314,10 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Save button ── */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}
           className={cn(
-            "flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all",
+            "flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap",
             saveState === "saved" ? "bg-green-600 text-white shadow-lg shadow-green-600/20" :
             saveState === "error" ? "bg-red-600 text-white" :
             "bg-roche-blue text-white hover:bg-roche-light dark:bg-[#2563eb] dark:hover:bg-[#3b82f6] shadow-md shadow-roche-blue/20 disabled:opacity-50"
@@ -365,7 +365,7 @@ function DestroyZone() {
 
   return (
     <div className="border border-red-200 dark:border-red-900/40 rounded-xl p-5 bg-red-50/50 dark:bg-red-950/10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h3>
           <p className="text-xs text-red-500 dark:text-red-500/70 mt-0.5">
@@ -374,7 +374,7 @@ function DestroyZone() {
         </div>
         <button
           onClick={() => { setOpen(true); setDone(false); setError(""); setPass(""); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+          className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors whitespace-nowrap self-start sm:self-auto"
         >
           <Trash2 size={14} /> Destroy All Data
         </button>
