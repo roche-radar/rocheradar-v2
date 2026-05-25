@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
-  Search, RefreshCw, ExternalLink, Wifi, Database, Globe,
+  Search, RefreshCw, ExternalLink, Database, Globe,
   Youtube, FileText, Lock, AlertCircle, Play, X, BookOpen,
-  Video, TrendingUp, Clock, ChevronRight, Zap, Users,
+  Video, TrendingUp, Clock, ChevronRight, Zap,
   ChevronDown, ChevronUp, History, Star, MessageCircle, Linkedin,
   ScanSearch, Link2, FlaskConical
 } from "lucide-react";
@@ -42,13 +42,6 @@ function domainBg(domain: string): string {
 
 type SectionFilter = "all" | "kol-recent" | "kol-old" | "web-article" | "web-video" | "web-social";
 
-function mediaIcon(type: string, size = 10) {
-  if (type === "video") return <Youtube size={size} className="text-red-500"/>;
-  if (type === "linkedin") return <Linkedin size={size} className="text-blue-600"/>;
-  if (type === "twitter") return <MessageCircle size={size} className="text-sky-500"/>;
-  if (type === "pdf") return <FileText size={size} className="text-orange-400"/>;
-  return <Globe size={size} className="text-gray-400"/>;
-}
 
 function mediaLabel(type: string): string {
   if (type === "video") return "VIDEO";

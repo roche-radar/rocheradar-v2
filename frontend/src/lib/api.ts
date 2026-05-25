@@ -52,6 +52,7 @@ export interface Insight {
   target_name: string;
   topic: string;
   what_they_said: string;
+  context: string | null;
   sentiment: string;
   category: string;
   extracted_at: string;
