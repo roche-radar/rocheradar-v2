@@ -303,9 +303,18 @@ export default function TopicExplorer() {
                   subtitle={`${webSocial.length} post${webSocial.length!==1?"s":""} from LinkedIn, X & more`}
                   accent="blue"
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {webSocial.map(r => <SocialCard key={r.id} result={r} onClick={() => setActive(r)}/>)}
+                  {/* Hero row — first 3 as cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                    {webSocial.slice(0, 3).map(r => (
+                      <SocialCard key={r.id} result={r} onClick={() => setActive(r)}/>
+                    ))}
                   </div>
+                  {/* Remaining as compact list rows */}
+                  {webSocial.length > 3 && (
+                    <div className="space-y-2">
+                      {webSocial.slice(3).map(r => <SocialListRow key={r.id} result={r} onClick={() => setActive(r)}/>)}
+                    </div>
+                  )}
                 </Section>
               )}
 
@@ -759,6 +768,42 @@ function SocialCard({ result, onClick }: { result: DiscoveryResult; onClick: () 
           <ExternalLink size={12} className="text-gray-300 dark:text-[#334155] group-hover:text-roche-blue transition-colors shrink-0"/>
         </div>
       </div>
+    </article>
+  );
+}
+
+function SocialListRow({ result, onClick }: { result: DiscoveryResult; onClick: () => void }) {
+  const domain = result.source_name || getDomain(result.url);
+  const isLinkedIn = result.media_type === "linkedin";
+  const isTwitter  = result.media_type === "twitter";
+  const platformBg   = isLinkedIn ? "#0a66c2" : isTwitter ? "#14171a" : "#6366f1";
+  const platformName = isLinkedIn ? "LinkedIn" : isTwitter ? "X / Twitter" : "Social";
+  const PlatformIcon = isLinkedIn ? Linkedin : MessageCircle;
+  const date = result.published_date || fmt(result.scraped_at);
+  const dateType = result.published_date ? "pub" : "fetch";
+
+  return (
+    <article onClick={onClick}
+      className="flex items-start gap-3 px-3 py-2.5 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f]/60 cursor-pointer group hover:border-roche-blue/30 hover:shadow-sm transition-all">
+      {/* Platform icon */}
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+        style={{ background: platformBg }}>
+        <PlatformIcon size={14} className="text-white"/>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-[10px] font-bold text-white/80 px-1.5 py-0.5 rounded"
+            style={{ background: platformBg }}>{platformName}</span>
+          <span className="text-[10px] text-gray-400 dark:text-[#64748b] truncate">{domain}</span>
+          <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-1 shrink-0">
+            <Clock size={9}/>{dateType === "fetch" && <span className="opacity-60">fetched</span>}{date}
+          </span>
+        </div>
+        <p className="text-sm font-medium text-gray-700 dark:text-[#e2e8f0] line-clamp-2 group-hover:text-roche-blue dark:group-hover:text-[#93c5fd] transition-colors leading-snug">
+          {result.snippet || result.title || `Post on ${platformName}`}
+        </p>
+      </div>
+      <ExternalLink size={12} className="text-gray-300 dark:text-[#334155] group-hover:text-roche-blue shrink-0 mt-1 transition-colors"/>
     </article>
   );
 }
