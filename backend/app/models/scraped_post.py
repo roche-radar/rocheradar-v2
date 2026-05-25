@@ -21,8 +21,6 @@ class ScrapedPost(Base):
 
     # SHA256 of normalised content — primary dedup key
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
-    # Chroma embedding ID (set after embed task runs)
-    chroma_id: Mapped[str | None] = mapped_column(String(128), index=True)
 
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)

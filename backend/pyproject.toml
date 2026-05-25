@@ -25,9 +25,6 @@ dependencies = [
     "litellm>=1.55.0",
     "google-cloud-aiplatform>=1.71.0",
 
-    # Vector DB
-    "chromadb>=0.6.0",
-
     # Scraping
     "httpx>=0.28.0",
 

@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 import structlog
 
 from app.config import get_settings
-from app.services.deduplicator import DeduplicatorService, sha256_hash
+from app.services.deduplicator import sha256_hash
 from app.services.run_context import RunContext
 
 logger = structlog.get_logger(__name__)
@@ -382,9 +382,7 @@ async def _save_post_and_extract(
             await sess.rollback()
             return False, None
 
-    from app.tasks.embed import embed_post
     from app.tasks.llm import extract_insights
-    embed_post.delay(post.id)
     extract_insights.delay(post.id, run_id)
     return True, post.id
 
@@ -400,7 +398,7 @@ def _save_post_sync(target_id, url, content, idempotency_key, run_id) -> tuple[b
 def _process_url_free(
     url: str, snippet: str, target_id: int,
     idempotency_key: str, run_id: int,
-    dedup: DeduplicatorService, ctx: RunContext,
+    ctx: RunContext,
 ) -> tuple[str, bool]:
     """Pass 1: free fetch only. No agent calls at all.
     Returns (result, bot_blocked) where result is 'new'|'dup'|'skip'|'stop'
@@ -415,10 +413,6 @@ def _process_url_free(
     if not full.strip() or len(full.strip()) < 200:
         return "skip", bot_blocked
 
-    is_dup, _ = dedup.is_semantic_duplicate(full, target_id)
-    if is_dup:
-        return "dup", False
-
     saved, _ = _save_post_sync(target_id, url, full, idempotency_key, run_id)
     return ("new" if saved else "dup"), False
 
@@ -427,16 +421,11 @@ def _process_url_free(
 
 def _process_url_agent(
     url: str, target_id: int, idempotency_key: str, run_id: int,
-    dedup: DeduplicatorService,
 ) -> str:
     """Pass 2: agent fetch. Used only when Pass 1 found 0 posts."""
     content = _tf_agent(url)
     if not content or len(content.strip()) < 200:
         return "skip"
-
-    is_dup, _ = dedup.is_semantic_duplicate(content, target_id)
-    if is_dup:
-        return "dup"
 
     saved, _ = _save_post_sync(target_id, url, content, idempotency_key, run_id)
     return "new" if saved else "dup"
@@ -446,7 +435,7 @@ def _process_url_agent(
 
 class ScrapeService:
     def __init__(self) -> None:
-        self._dedup = DeduplicatorService()
+        pass
 
     def scrape(self, target_id: int, ctx: RunContext, idempotency_key: str) -> dict:
         return _run_in_thread(self._run(target_id, ctx, idempotency_key))
@@ -515,7 +504,7 @@ class ScrapeService:
                     _process_url_free,
                     c["url"], c["snippet"],
                     target_id, idempotency_key, run_id,
-                    self._dedup, ctx,
+                    ctx,
                 ): c["url"]
                 for c in top_candidates
             }
@@ -575,7 +564,7 @@ class ScrapeService:
             if ctx.should_stop or not _agent_can_consume(ctx.run_id):
                 break
             result = await loop.run_in_executor(
-                None, _process_url_agent, url, target_id, idempotency_key, ctx.run_id, self._dedup
+                None, _process_url_agent, url, target_id, idempotency_key, ctx.run_id
             )
             if result == "new":
                 rescued += 1

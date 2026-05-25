@@ -64,9 +64,9 @@ rm -f /tmp/celerybeat-schedule 2>/dev/null || true
 ok "Caches cleared"
 
 # ── 4. Docker — bring infra up ────────────────────────────
-log "Starting Docker services (postgres, redis, chromadb)..."
+log "Starting Docker services (postgres, redis)..."
 docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-  up -d postgres redis chromadb 2>&1 \
+  up -d postgres redis 2>&1 \
   | grep -E "Started|Created|Running" | sed 's/^/    /' || true
 
 log "Waiting for postgres + redis to be healthy..."
@@ -177,7 +177,7 @@ ok "LLM provider configured"
 # ── 9. Start Celery worker + beat ─────────────────────────
 log "Starting Celery worker..."
 nohup ../.venv/bin/celery -A app.tasks.celery_app.celery_app worker \
-  -Q scrape,llm,pdf,embed -c 4 -n worker@local --loglevel=info > /tmp/celery.log 2>&1 &
+  -Q scrape,llm,pdf -c 4 -n worker@local --loglevel=info > /tmp/celery.log 2>&1 &
 WORKER_PID=$!
 
 log "Starting Celery beat (scheduler)..."

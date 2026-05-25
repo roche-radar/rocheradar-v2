@@ -13,7 +13,6 @@ logger = structlog.get_logger(__name__)
     max_retries=2,
     default_retry_delay=30,
     acks_late=True,
-    rate_limit="4/m",
 )
 def generate_target_pdf(self, target_id: int, run_id: int) -> dict:
     """Generate per-target PDF report and validate the output file."""

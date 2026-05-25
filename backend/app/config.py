@@ -30,11 +30,6 @@ class Settings(BaseSettings):
     tinyfish_api_keys: str = ""
     tinyfish_rate_limit_per_key: int = 30
 
-    # ChromaDB
-    chroma_host: str = "localhost"
-    chroma_port: int = 8002
-    chroma_collection: str = "rocheradar_posts"
-
     # Sentry
     sentry_dsn: str = ""
 
@@ -55,8 +50,6 @@ class Settings(BaseSettings):
     daily_run_minute: int = 0
     agent_budget_per_run: int = 250
     llm_budget_hard_stop: int = 500
-    dedup_cosine_threshold: float = 0.95
-
     @property
     def async_database_url(self) -> str:
         """Convert Railway's postgresql:// URL to asyncpg format."""

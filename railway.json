@@ -18,7 +18,7 @@
         "context": "backend"
       },
       "deploy": {
-        "startCommand": "sh -c \"celery -A app.tasks.celery_app.celery_app worker -Q scrape,llm,pdf,embed --concurrency=4 --loglevel=info -n worker@railway\"",
+        "startCommand": "sh -c \"celery -A app.tasks.celery_app.celery_app worker -Q scrape,llm,pdf --concurrency=4 --loglevel=info -n worker@railway\"",
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 3
       }

@@ -7,8 +7,6 @@ x-backend-env: &backend-env
     REDIS_URL: redis://redis:6379/0
     CELERY_BROKER_URL: redis://redis:6379/1
     CELERY_RESULT_BACKEND: redis://redis:6379/2
-    CHROMA_HOST: chromadb
-    CHROMA_PORT: 8000
     RUN_TRIGGER_URL: http://backend:8008/api/runs/trigger
 
 services:
@@ -34,17 +32,6 @@ services:
       interval: 10s
       retries: 5
 
-  chromadb:
-    image: chromadb/chroma:latest
-    volumes:
-      - chromadata:/chroma/chroma
-    environment:
-      IS_PERSISTENT: "TRUE"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
-      interval: 15s
-      retries: 5
-
   backend:
     build: ./backend
     <<: *backend-env
@@ -54,7 +41,6 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      chromadb: { condition: service_healthy }
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8008 --workers 2"
 
@@ -89,15 +75,6 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
-  worker-embed:
-    build: ./backend
-    <<: *backend-env
-    command: celery -A app.tasks.celery_app.celery_app worker -Q embed -c 2 -n embed@%h
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      chromadb: { condition: service_healthy }
-
   celery-beat:
     build: ./backend
     <<: *backend-env
@@ -115,5 +92,4 @@ services:
 volumes:
   pgdata:
   redisdata:
-  chromadata:
   reports:

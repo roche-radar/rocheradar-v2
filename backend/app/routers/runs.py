@@ -257,17 +257,7 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
         except Exception as exc:
             pass  # non-fatal — DB is already clean
 
-    # 3. ChromaDB: drop collection
-    chroma_reset = False
-    try:
-        import chromadb
-        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        client.delete_collection(settings.chroma_collection)
-        chroma_reset = True
-    except Exception:
-        pass
-
-    # 4. Redis: flush all keys (clears task results, wave2 rescue lists, rate-limit counters)
+    # 3. Redis: flush all keys (clears task results, wave2 rescue lists, rate-limit counters)
     redis_reset = False
     try:
         import redis as _redis
@@ -277,4 +267,4 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    return {"db_cleared": True, "blobs_deleted": blob_deleted, "chroma_reset": chroma_reset, "redis_reset": redis_reset}
+    return {"db_cleared": True, "blobs_deleted": blob_deleted, "redis_reset": redis_reset}
