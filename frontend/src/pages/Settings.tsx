@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import {
   Save, RefreshCw, CheckCircle, XCircle, ChevronDown,
-  Cpu, Calendar, Gauge, Info, Activity, Square,
+  Cpu, Calendar, Gauge, Info, Activity, Square, Trash2,
 } from "lucide-react";
 import { api, type AppSettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -330,6 +330,100 @@ export default function SettingsPage() {
         )}
       </div>
 
+      {/* ── Danger zone ── */}
+      <DestroyZone />
+
+    </div>
+  );
+}
+
+// ── Destroy Zone ─────────────────────────────────────────
+
+function DestroyZone() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [pass, setPass] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const resetMut = useMutation({
+    mutationFn: api.runs.resetAll,
+    onSuccess: () => {
+      setDone(true);
+      setOpen(false);
+      setPass("");
+      qc.invalidateQueries();
+    },
+    onError: () => setError("Reset failed. Try again."),
+  });
+
+  function confirm() {
+    if (pass !== "78951") { setError("Wrong password."); return; }
+    setError("");
+    resetMut.mutate();
+  }
+
+  return (
+    <div className="border border-red-200 dark:border-red-900/40 rounded-xl p-5 bg-red-50/50 dark:bg-red-950/10">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h3>
+          <p className="text-xs text-red-500 dark:text-red-500/70 mt-0.5">
+            Wipes all posts, insights, summaries, run history and PDFs. Targets and settings are kept.
+          </p>
+        </div>
+        <button
+          onClick={() => { setOpen(true); setDone(false); setError(""); setPass(""); }}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+        >
+          <Trash2 size={14} /> Destroy All Data
+        </button>
+      </div>
+
+      {done && (
+        <p className="mt-3 text-xs text-green-600 dark:text-green-400 font-medium">
+          All data wiped successfully. Please restart the worker service on Railway to clear its state.
+        </p>
+      )}
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-[#111827] rounded-xl border border-red-200 dark:border-red-900/40 shadow-xl p-6 w-full max-w-sm space-y-4">
+            <div className="flex items-center gap-2 text-red-600">
+              <Trash2 size={18} />
+              <h3 className="font-semibold">Confirm Destroy</h3>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-[#94a3b8]">
+              This will permanently delete all data. Enter the password to continue.
+            </p>
+            <input
+              type="password"
+              value={pass}
+              onChange={e => { setPass(e.target.value); setError(""); }}
+              onKeyDown={e => e.key === "Enter" && confirm()}
+              placeholder="Password"
+              autoFocus
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-[#1e3a5f] bg-white dark:bg-[#0a0f1e] text-gray-900 dark:text-[#e2e8f0] focus:outline-none focus:ring-2 focus:ring-red-400/50"
+            />
+            {error && <p className="text-xs text-red-500">{error}</p>}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => { setOpen(false); setPass(""); setError(""); }}
+                className="flex-1 px-4 py-2 rounded-lg text-sm border border-gray-200 dark:border-[#1e3a5f] text-gray-500 hover:border-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirm}
+                disabled={resetMut.isPending}
+                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {resetMut.isPending ? "Wiping…" : "Destroy"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

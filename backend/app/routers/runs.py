@@ -267,4 +267,14 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
-    return {"db_cleared": True, "blobs_deleted": blob_deleted, "chroma_reset": chroma_reset}
+    # 4. Redis: flush all keys (clears task results, wave2 rescue lists, rate-limit counters)
+    redis_reset = False
+    try:
+        import redis as _redis
+        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=3)
+        r.flushdb()
+        redis_reset = True
+    except Exception:
+        pass
+
+    return {"db_cleared": True, "blobs_deleted": blob_deleted, "chroma_reset": chroma_reset, "redis_reset": redis_reset}

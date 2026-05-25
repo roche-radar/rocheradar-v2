@@ -105,6 +105,7 @@ export const api = {
       req<{ run_id: number }>("/runs/trigger", { method: "POST", body: JSON.stringify({ limit }) }),
     stop: () => req<{ stopped: boolean }>("/runs/stop", { method: "POST" }),
     generatePdfs: () => req<{ status: string; run_id: number }>("/runs/generate-pdfs", { method: "POST" }),
+    resetAll: () => req<{ db_cleared: boolean; blobs_deleted: number; chroma_reset: boolean }>("/runs/reset-all", { method: "POST" }),
   },
 
   reports: {
