@@ -5,6 +5,7 @@ from app.models.run_log import RunLog, RunStatus
 from app.models.app_settings import AppSettings
 from app.models.person_summary import PersonSummary
 from app.models.agent_message import AgentMessage
+from app.models.discovery_result import DiscoveryResult
 
 __all__ = [
     "Target",
@@ -15,4 +16,5 @@ __all__ = [
     "AppSettings",
     "PersonSummary",
     "AgentMessage",
+    "DiscoveryResult",
 ]

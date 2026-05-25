@@ -18,7 +18,6 @@ celery_app = Celery(
         "app.tasks.scrape",   # scrape_target (wave1) + wave2_rescue
         "app.tasks.llm",
         "app.tasks.pdf",
-        "app.tasks.embed",
         "app.tasks.scheduler",
         "app.tasks.maintenance",  # reap_stale_runs
     ],
@@ -30,7 +29,6 @@ celery_app = Celery(
 import app.tasks.scrape          # noqa: E402,F401
 import app.tasks.llm             # noqa: E402,F401
 import app.tasks.pdf             # noqa: E402,F401
-import app.tasks.embed           # noqa: E402,F401
 import app.tasks.scheduler       # noqa: E402,F401
 import app.tasks.maintenance     # noqa: E402,F401
 
@@ -54,7 +52,6 @@ celery_app.conf.update(
         "app.tasks.scrape.*": {"queue": "scrape"},
         "app.tasks.llm.*": {"queue": "llm"},
         "app.tasks.pdf.*": {"queue": "pdf"},
-        "app.tasks.embed.*": {"queue": "embed"},
         "app.tasks.scheduler.*": {"queue": "llm"},
         "app.tasks.maintenance.*": {"queue": "llm"},
     },

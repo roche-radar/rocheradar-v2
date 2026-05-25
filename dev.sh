@@ -19,9 +19,9 @@ echo -e "${BOLD}  RocheRadar v2 — starting${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
 # ── 1. Docker infra ───────────────────────────────────────
-log "Starting Docker services (postgres, redis, chromadb)..."
+log "Starting Docker services (postgres, redis)..."
 docker compose -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.dev.yml" \
-  up -d postgres redis chromadb 2>&1 | grep -E "Started|Running|healthy|error|Created" || true
+  up -d postgres redis 2>&1 | grep -E "Started|Running|healthy|error|Created" || true
 
 log "Waiting for postgres + redis..."
 for i in $(seq 1 30); do
@@ -74,15 +74,15 @@ try:
                 k, v = line.split('=', 1)
                 env[k.strip()] = v.strip()
 except: pass
-if env.get('GEMINI_API_KEY'):    p,pro,fl = 'gemini','gemini-2.5-pro','gemini-2.5-flash'
-elif env.get('NVIDIA_API_KEY'):  p,pro,fl = 'nvidia','meta/llama-3.3-70b-instruct','meta/llama-3.3-70b-instruct'
-elif env.get('ANTHROPIC_API_KEY'): p,pro,fl = 'anthropic','claude-sonnet-4-6','claude-haiku-4-5-20251001'
-elif env.get('OPENAI_API_KEY'):  p,pro,fl = 'openai','gpt-4o','gpt-4o-mini'
-else:                             p,pro,fl = 'vertex','gemini-2.5-pro','gemini-2.5-flash'
-body = json.dumps({'llm_provider':p,'llm_pro_model':pro,'llm_flash_model':fl}).encode()
+if env.get('GEMINI_API_KEY'):      p,m = 'gemini','gemini-2.5-flash'
+elif env.get('NVIDIA_API_KEY'):    p,m = 'nvidia','meta/llama-3.3-70b-instruct'
+elif env.get('ANTHROPIC_API_KEY'): p,m = 'anthropic','claude-haiku-4-5-20251001'
+elif env.get('OPENAI_API_KEY'):    p,m = 'openai','gpt-4o-mini'
+else:                              p,m = 'vertex','gemini-2.5-flash'
+body = json.dumps({'llm_provider':p,'llm_model':m}).encode()
 req = urllib.request.Request('http://localhost:8009/api/settings/', data=body, headers={'Content-Type':'application/json'}, method='POST')
 urllib.request.urlopen(req)
-print(f'    {p} / {fl}')
+print(f'    {p} / {m}')
 " 2>/dev/null
 ok "LLM configured"
 
@@ -105,7 +105,7 @@ SCRAPE_PID=$!
 LLM_PID=$!
 
 ../.venv/bin/celery -A app.tasks.celery_app.celery_app worker \
-  -Q pdf,embed -c 2 -n misc@local --loglevel=info >> /tmp/celery-misc.log 2>&1 &
+  -Q pdf -c 2 -n misc@local --loglevel=info >> /tmp/celery-misc.log 2>&1 &
 MISC_PID=$!
 
 ../.venv/bin/celery -A app.tasks.celery_app.celery_app beat \
@@ -130,13 +130,13 @@ echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}${BOLD}  All services running${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-PROVIDER=$(curl -s http://localhost:8009/api/settings/ 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['llm_provider']+' / '+d['llm_flash_model'])" 2>/dev/null || echo "unknown")
+PROVIDER=$(curl -s http://localhost:8009/api/settings/ 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['llm_provider']+' / '+d['llm_model'])" 2>/dev/null || echo "unknown")
 TARGETS=$(curl -s http://localhost:8009/api/targets/ 2>/dev/null | python3 -c "import sys,json;t=json.load(sys.stdin);a=len([x for x in t if x['active']]);print(f'{a} active')" 2>/dev/null || echo "?")
 echo -e "  ${BOLD}Frontend :${NC}  http://localhost:5173"
 echo -e "  ${BOLD}Backend  :${NC}  http://localhost:8009"
 echo -e "  ${BOLD}Provider :${NC}  $PROVIDER"
 echo -e "  ${BOLD}Targets  :${NC}  $TARGETS"
-echo -e "  ${BOLD}Workers  :${NC}  scrape×6  llm×3  misc×2  beat"
+echo -e "  ${BOLD}Workers  :${NC}  scrape×6  llm×3  pdf×2  beat"
 echo -e "  ${BOLD}Capacity :${NC}  150 targets ~6 min (premium) / ~50 min (free)"
 echo -e "  ${BOLD}Logs     :${NC}  /tmp/celery-{scrape,llm,misc}.log"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

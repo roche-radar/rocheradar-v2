@@ -76,6 +76,43 @@ export interface AppSettings {
   available_providers: Record<string, string>;
 }
 
+export interface DiscoveryResult {
+  id: number;
+  query: string;
+  url: string;
+  title: string | null;
+  snippet: string | null;
+  content: string | null;
+  source_name: string | null;
+  published_date: string | null;
+  scraped_at: string;
+  from_cache: boolean;
+  media_type: "article" | "video" | "pdf" | "linkedin" | "twitter" | "social" | "research";
+  thumbnail_url: string | null;
+}
+
+export interface KolInsight {
+  id: number;
+  kol: string;
+  topic: string;
+  what_they_said: string;
+  sentiment: string;
+  category: string;
+  published_date: string;
+  source_url: string | null;
+  source_name: string | null;
+  extracted_at: string;
+}
+
+export interface DiscoveryContent {
+  content: string | null;
+  media_type: string;
+  youtube_id?: string;
+  blocked: boolean;
+  error?: string;
+  thumbnail_url?: string | null;
+}
+
 export interface TopicsData {
   period_days: number;
   total: number;
@@ -128,5 +165,28 @@ export const api = {
       req<{ reply: string }>("/agent/chat", { method: "POST", body: JSON.stringify({ message }) }),
     history: () => req<{ role: string; content: string; created_at: string }[]>("/agent/history"),
     clearHistory: () => req<void>("/agent/history", { method: "DELETE" }),
+  },
+
+  discovery: {
+    search: (query: string, forceRefresh = false) =>
+      req<{ results: DiscoveryResult[]; from_cache: boolean; count: number }>(
+        "/discovery/search",
+        { method: "POST", body: JSON.stringify({ query, force_refresh: forceRefresh }) }
+      ),
+    fetchContent: (result_id: number, url: string) =>
+      req<DiscoveryContent>(
+        "/discovery/fetch-content",
+        { method: "POST", body: JSON.stringify({ result_id, url }) }
+      ),
+    history: () => req<{ queries: { query: string; scraped_at: string }[] }>("/discovery/history"),
+    deepSearch: (q: string) => req<{ results: DiscoveryResult[]; count: number }>(
+      "/discovery/deep-search",
+      { method: "POST", body: JSON.stringify({ query: q, force_refresh: false }) }
+    ),
+    kolMentions: (q: string) => req<{
+      recent: KolInsight[];
+      historical: KolInsight[];
+      total: number;
+    }>(`/discovery/kol-mentions?q=${encodeURIComponent(q)}`),
   },
 };

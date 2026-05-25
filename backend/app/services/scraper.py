@@ -68,25 +68,48 @@ ROCHE_DRUGS = [
 ]
 
 NEWS_SITES = [
-    "statnews.com", "endpoints.news", "fiercepharma.com",
-    "biopharmadive.com", "reuters.com", "bloomberg.com",
-    "forbes.com", "nature.com", "nejm.org", "medscape.com",
+    # Pharma / biotech news
+    "statnews.com", "endpoints.news", "fiercepharma.com", "biopharmadive.com",
+    "pharmatimes.com", "pharmaphorum.com", "drugdiscoverytoday.com",
+    "healio.com", "mdedge.com", "cancernetwork.com", "onclive.com",
+    # General news
+    "reuters.com", "bloomberg.com", "forbes.com", "wsj.com",
+    "ft.com", "theguardian.com", "bbc.com",
+    # Medical journals (open)
+    "nature.com", "nejm.org", "medscape.com", "medicalnewstoday.com",
+    "nih.gov", "ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov",
+    # Conferences
+    "asco.org", "esmo.org", "aacr.org", "aacrjournals.org",
 ]
 
 LIKELY_NEEDS_AGENT = {
+    # Social media — require JS / login
     "twitter.com", "x.com", "linkedin.com", "instagram.com", "facebook.com",
+    "threads.net", "bluesky.app", "bsky.app", "mastodon.social",
+    "reddit.com", "tiktok.com",
+    # Paywalled journals
     "aacrjournals.org", "sciencedirect.com", "wiley.com", "onlinelibrary.wiley.com",
     "springer.com", "link.springer.com", "jamanetwork.com", "thelancet.com",
     "cell.com", "bmj.com", "academic.oup.com", "ascopubs.org", "annalsofoncology.org",
     "nejm.org", "nature.com", "jto.org", "ssrn.com", "ovid.com",
     "karger.com", "tandfonline.com", "sagepub.com", "mdpi.com",
     "researchgate.net", "europepmc.org", "frontiersin.org",
+    "jnccn.org", "annalsofoncology.org", "thoraciconcology.org",
+    # Other JS-heavy sites
+    "clinicaltrials.gov", "who.int", "cancer.gov",
 }
 
 HIGH_SIGNAL_DOMAINS = {
+    # Social (KOL posts)
+    "twitter.com", "x.com", "linkedin.com", "substack.com", "threads.net",
+    # Top pharma/biotech news
     "statnews.com", "endpoints.news", "fiercepharma.com", "biopharmadive.com",
+    "pharmaphorum.com", "healio.com", "oncologynurseadvisor.com",
+    "cancernetwork.com", "onclive.com", "targetedonc.com",
+    # Top journals
     "reuters.com", "bloomberg.com", "nature.com", "nejm.org", "thelancet.com",
-    "jamanetwork.com", "cell.com", "twitter.com", "x.com", "substack.com",
+    "jamanetwork.com", "cell.com", "asco.org", "esmo.org", "aacr.org",
+    "pubmed.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov",
 }
 
 HARD_SKIP_SUFFIXES = (
@@ -106,25 +129,74 @@ AGENT_FETCH_GOAL = (
 # ── API key rotation ──────────────────────────────────────
 _key_lock = threading.Lock()
 _key_cycle: itertools.cycle | None = None
+_pipeline_key_cycle: itertools.cycle | None = None  # all except last
+
+PIPELINE_RUNNING_REDIS_KEY = "pipeline:running"
+DISCOVERY_ACTIVE_REDIS_KEY = "discovery:active"
 
 
-def _next_key() -> str:
-    global _key_cycle
+def _redis_flag(flag_key: str) -> bool:
+    """Check a boolean Redis flag. Returns False on error."""
+    try:
+        import redis as _redis
+        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=1)
+        return bool(r.get(flag_key))
+    except Exception:
+        return False
+
+
+def _next_key(pipeline_mode: bool = False) -> str:
+    """Pick the next TinyFish API key.
+
+    Smart allocation when multiple keys exist:
+    - Discovery active + pipeline running → pipeline gets all except last key
+    - Otherwise → all keys available
+    """
+    global _key_cycle, _pipeline_key_cycle
     keys = settings.tinyfish_keys_list
     if not keys:
         return ""
+
+    # Only apply smart allocation when we have >1 key and both sides are active
+    if (pipeline_mode and len(keys) > 1
+            and _redis_flag(PIPELINE_RUNNING_REDIS_KEY)
+            and _redis_flag(DISCOVERY_ACTIVE_REDIS_KEY)):
+        pipeline_keys = keys[:-1]
+        with _key_lock:
+            if _pipeline_key_cycle is None:
+                _pipeline_key_cycle = itertools.cycle(pipeline_keys)
+            return next(_pipeline_key_cycle)
+
     with _key_lock:
         if _key_cycle is None:
             _key_cycle = itertools.cycle(keys)
         return next(_key_cycle)
 
 
-def _tf_env(key: str = "") -> dict:
+def _discovery_key() -> str:
+    """Pick TinyFish key for Discovery.
+
+    If pipeline is running and we have >1 key → use last key exclusively.
+    Otherwise → use all keys via normal round-robin.
+    """
+    keys = settings.tinyfish_keys_list
+    if not keys:
+        return ""
+    if len(keys) > 1 and _redis_flag(PIPELINE_RUNNING_REDIS_KEY):
+        return keys[-1]
+    with _key_lock:
+        global _key_cycle
+        if _key_cycle is None:
+            _key_cycle = itertools.cycle(keys)
+        return next(_key_cycle)
+
+
+def _tf_env(key: str = "", pipeline_mode: bool = False) -> tuple:
     env = os.environ.copy()
-    k = key or _next_key()
+    k = key or _next_key(pipeline_mode=pipeline_mode)
     if k:
         env["TINYFISH_API_KEY"] = k
-    return env, k   # return key so caller can track it for rate limiting
+    return env, k
 
 
 # ── Redis rate limiter — shared across ALL workers ────────
@@ -176,9 +248,9 @@ def _rate_limit_wait(key: str) -> None:
 
 # ── Low-level TinyFish calls ──────────────────────────────
 
-def _run_tf(args: list[str], timeout: int = 90) -> tuple[dict, str]:
+def _run_tf(args: list[str], timeout: int = 90, pipeline_mode: bool = True) -> tuple[dict, str]:
     """Run tinyfish CLI, return (parsed_json, key_used)."""
-    env, key = _tf_env()
+    env, key = _tf_env(pipeline_mode=pipeline_mode)
     _rate_limit_wait(key)           # ← blocks here if rate limited
     try:
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
@@ -203,15 +275,54 @@ def _run_tf(args: list[str], timeout: int = 90) -> tuple[dict, str]:
 
 
 def _tf_search(query: str) -> list[dict]:
-    data, _ = _run_tf(["tinyfish", "search", "query", query])
+    data, _ = _run_tf(["tinyfish", "search", "query", query], pipeline_mode=True)
     return data.get("results", [])
 
 
 def _tf_fetch(url: str) -> str:
-    data, _ = _run_tf(["tinyfish", "fetch", "content", "get", url])
+    data, _ = _run_tf(["tinyfish", "fetch", "content", "get", url], pipeline_mode=True)
     results = data.get("results", [])
     if results:
         return results[0].get("text") or results[0].get("content") or ""
+    return ""
+
+
+def _tf_search_discovery(query: str) -> list[dict]:
+    """Discovery-aware search — uses dedicated key when pipeline is running."""
+    key = _discovery_key()
+    env = os.environ.copy()
+    if key:
+        env["TINYFISH_API_KEY"] = key
+    _rate_limit_wait(key)
+    import subprocess as _sp, json as _json
+    try:
+        r = _sp.run(["tinyfish", "search", "query", query],
+                    capture_output=True, text=True, timeout=60, env=env)
+        out = r.stdout.strip()
+        data = _json.loads(out) if out else {}
+        return data.get("results", [])
+    except Exception:
+        return []
+
+
+def _tf_fetch_discovery(url: str) -> str:
+    """Discovery-aware fetch — uses dedicated key when pipeline is running."""
+    key = _discovery_key()
+    env = os.environ.copy()
+    if key:
+        env["TINYFISH_API_KEY"] = key
+    _rate_limit_wait(key)
+    import subprocess as _sp, json as _json
+    try:
+        r = _sp.run(["tinyfish", "fetch", "content", "get", url],
+                    capture_output=True, text=True, timeout=60, env=env)
+        out = r.stdout.strip()
+        data = _json.loads(out) if out else {}
+        results = data.get("results", [])
+        if results:
+            return results[0].get("text") or results[0].get("content") or ""
+    except Exception:
+        pass
     return ""
 
 
@@ -319,6 +430,18 @@ def extract_identifiers(known_urls: list[str]) -> dict:
                 ids["substack"] = parts[-1].lstrip("@")
             elif ".substack.com" in url:
                 ids["substack"] = url.split(".substack.com")[0].split("//")[-1]
+        elif "bsky.app" in url or "bluesky" in url:
+            ids["bluesky"] = parts[-1].lstrip("@")
+        elif "threads.net" in url:
+            ids["threads"] = parts[-1].lstrip("@")
+        elif "researchgate.net/profile/" in url:
+            ids["researchgate"] = parts[-1]
+        elif "youtube.com" in url:
+            # channel or @handle
+            if "@" in url:
+                handle = [p for p in parts if p.startswith("@")]
+                if handle:
+                    ids["youtube"] = handle[0]
     return ids
 
 
@@ -341,20 +464,38 @@ def build_search_queries(name: str, ids: dict, window_days: int = _FRESHNESS_DAY
         f'"{name}" cancer treatment OR lung cancer OR NSCLC {f1yr}',
         f'"{name}" interview OR conference OR publication {f1yr}',
         f'"{name}" pharma OR oncology site:researchgate.net OR site:pubmed.ncbi.nlm.nih.gov',
+        # Social sites — always search regardless of known handles
+        f'"{name}" site:linkedin.com {f1yr}',
+        f'"{name}" site:twitter.com OR site:x.com {f90}',
+        f'"{name}" site:threads.net OR site:bsky.app {f90}',
+        f'"{name}" site:youtube.com {f1yr}',
+        f'"{name}" site:reddit.com pharma OR oncology {f1yr}',
     ]
 
     twitter = ids.get("twitter")
     if twitter:
         queries += [
-            f"site:twitter.com {twitter} Roche OR pharma {f90}",
-            f"site:x.com {twitter} {f90}",
+            f"site:twitter.com/{twitter} {f90}",
+            f"site:x.com/{twitter} {f90}",
         ]
     substack = ids.get("substack")
     if substack:
         queries.append(f"site:{substack}.substack.com {f1yr}")
     linkedin = ids.get("linkedin")
     if linkedin:
-        queries.append(f"site:linkedin.com/in/{linkedin} pharmaceutical {f1yr}")
+        queries.append(f"site:linkedin.com/in/{linkedin} {f1yr}")
+    bluesky = ids.get("bluesky")
+    if bluesky:
+        queries.append(f"site:bsky.app {bluesky} {f90}")
+    threads = ids.get("threads")
+    if threads:
+        queries.append(f"site:threads.net/@{threads} {f90}")
+    rg = ids.get("researchgate")
+    if rg:
+        queries.append(f"site:researchgate.net/profile/{rg} {f1yr}")
+    yt = ids.get("youtube")
+    if yt:
+        queries.append(f"site:youtube.com {yt} pharma OR oncology {f1yr}")
 
     return queries
 
@@ -395,19 +536,80 @@ def _save_post_sync(target_id, url, content, idempotency_key, run_id) -> tuple[b
 
 # ── Per-URL worker — FREE FETCH ONLY (no agent in Pass 1) ────────────────
 
+def _needs_agent(url: str) -> bool:
+    """Returns True if the URL belongs to a domain that requires agent fetch."""
+    host = _domain(url)
+    return any(host == d or host.endswith("." + d) for d in LIKELY_NEEDS_AGENT)
+
+
+_PASS1_AGENT_TIMEOUT = 45  # seconds — short cap so Pass 1 stays fast
+
+
+def _tf_agent_fast(url: str) -> str:
+    """Agent fetch with a shorter timeout for Pass 1 (45s vs 180s for Wave 2)."""
+    data, _ = _run_tf(
+        ["tinyfish", "agent", "run", "--url", url, "--sync", AGENT_FETCH_GOAL],
+        timeout=_PASS1_AGENT_TIMEOUT,
+    )
+    if not isinstance(data, dict):
+        return ""
+    for k in ("content", "text", "body", "output", "answer"):
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+    results = data.get("results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        if isinstance(first, dict):
+            for k in ("text", "content", "body"):
+                v = first.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v
+    result = data.get("result")
+    if result and data.get("status") == "COMPLETED":
+        if isinstance(result, str) and result.strip():
+            return result
+        if isinstance(result, dict):
+            return json.dumps(result, ensure_ascii=False, indent=2)
+    return ""
+
+
 def _process_url_free(
     url: str, snippet: str, target_id: int,
     idempotency_key: str, run_id: int,
     ctx: RunContext,
 ) -> tuple[str, bool]:
-    """Pass 1: free fetch only. No agent calls at all.
-    Returns (result, bot_blocked) where result is 'new'|'dup'|'skip'|'stop'
-    and bot_blocked=True means the URL needs an agent retry in Pass 2."""
+    """Pass 1: smart fetch — uses agent (fast, 45s cap) for social/paywalled domains.
+    Falls back to free fetch if credits exhausted or agent times out.
+    Returns (result, bot_blocked) where bot_blocked=True means Wave 2 should retry."""
     if ctx.should_stop:
         return "stop", False
 
-    content = _tf_fetch(url)
+    content = ""
+    used_agent = False
+
+    if _needs_agent(url) and _agent_can_consume(run_id):
+        try:
+            content = _tf_agent_fast(url)
+            used_agent = True
+        except Exception:
+            # Timeout or error — fall through to free fetch
+            logger.debug("scrape.agent_fast_failed", url=url[:80])
+
+    # Free fetch fallback: agent credits exhausted, timed out, or not a social domain
+    if not content:
+        content = _tf_fetch(url)
+
     bot_blocked = "bot_blocked" in (content or "").lower() or "target_http_error" in (content or "").lower()
+
+    # If agent worked but got bot-blocked, don't count the credit (refund)
+    if used_agent and bot_blocked:
+        try:
+            import redis as _redis
+            r = _redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+            r.decr(f"run:{run_id}:agent_used")
+        except Exception:
+            pass
 
     full = f"{snippet}\n\n{content}".strip() if snippet else content
     if not full.strip() or len(full.strip()) < 200:
@@ -615,25 +817,3 @@ class ScrapeService:
 
         return len(candidates)
 
-    def rescue_scrape(self, target_id: int, ctx: RunContext) -> dict:
-        return _run_in_thread(self._standalone_rescue(target_id, ctx))
-
-    async def _standalone_rescue(self, target_id: int, ctx: RunContext) -> dict:
-        from app.database import CelerySessionLocal
-        from app.models import Target
-        import json as _json
-        async with CelerySessionLocal() as sess:
-            target = await sess.get(Target, target_id)
-            if not target:
-                return {"error": "target_not_found"}
-            known_urls: list[str] = _json.loads(target.known_urls or "[]")
-        rescued = 0
-        for url in [u for u in known_urls if u and not _is_binary(u)][:5]:
-            if not _agent_can_consume(ctx.run_id):
-                break
-            result = _process_url_agent(
-                url, target_id, f"standalone_{ctx.run_id}", ctx.run_id, self._dedup
-            )
-            if result == "new":
-                rescued += 1
-        return {"rescued_posts": rescued}

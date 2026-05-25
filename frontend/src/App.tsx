@@ -7,38 +7,44 @@ import Reports from "@/pages/Reports";
 import RunHistory from "@/pages/RunHistory";
 import SettingsPage from "@/pages/Settings";
 import Agent from "@/pages/Agent";
+import TopicExplorer from "@/pages/TopicExplorer";
 import { useAppStore } from "@/store";
 import { cn } from "@/lib/utils";
+
+function Padded({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex-1 overflow-auto h-full">
+      <div className="max-w-7xl mx-auto px-6 py-8">{children}</div>
+    </div>
+  );
+}
 
 export default function App() {
   const { sidebarOpen, darkMode } = useAppStore();
 
-  // Apply dark class to <html> whenever darkMode changes
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
   return (
     <BrowserRouter>
-      <div className="flex h-screen bg-gray-50 dark:bg-[#0a0f1e] text-gray-900 dark:text-[#e2e8f0]">
+      <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-[#0a0f1e] text-gray-900 dark:text-[#e2e8f0]">
         <Sidebar />
-        <main
-          className={cn(
-            "flex-1 overflow-auto transition-all duration-200",
-            sidebarOpen ? "ml-64" : "ml-16"
-          )}
-        >
-          <div className="max-w-7xl mx-auto px-6 py-8">
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/targets" element={<Targets />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/history" element={<RunHistory />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/agent" element={<Agent />} />
-            </Routes>
-          </div>
+        <main className={cn(
+          "flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-200",
+          sidebarOpen ? "ml-64" : "ml-16"
+        )}>
+          <Routes>
+            <Route path="/"          element={<Navigate to="/dashboard" replace />} />
+            <Route path="/topics"    element={<TopicExplorer />} />
+            <Route path="/dashboard" element={<Padded><Dashboard /></Padded>} />
+            <Route path="/targets"   element={<Padded><Targets /></Padded>} />
+            <Route path="/reports"   element={<Padded><Reports /></Padded>} />
+            <Route path="/history"   element={<Padded><RunHistory /></Padded>} />
+            <Route path="/settings"  element={<Padded><SettingsPage /></Padded>} />
+            <Route path="/agent"     element={<Padded><Agent /></Padded>} />
+          </Routes>
+
         </main>
       </div>
     </BrowserRouter>

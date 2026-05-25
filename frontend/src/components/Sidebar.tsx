@@ -1,18 +1,19 @@
 import { NavLink } from "react-router-dom";
 import {
-  LayoutDashboard, Users, FileText, History, Settings, Bot,
+  LayoutDashboard, Users, FileText, History, Settings, Bot, Compass,
   ChevronLeft, ChevronRight, Sun, Moon,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard"  },
-  { to: "/targets",   icon: Users,           label: "Targets"    },
-  { to: "/reports",   icon: FileText,        label: "Reports"    },
-  { to: "/history",   icon: History,         label: "Run History"},
-  { to: "/agent",     icon: Bot,             label: "Hermes AI"  },
-  { to: "/settings",  icon: Settings,        label: "Settings"   },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard"      },
+  { to: "/targets",   icon: Users,           label: "Targets"        },
+  { to: "/reports",   icon: FileText,        label: "Reports"        },
+  { to: "/topics",    icon: Compass,         label: "Topic Explorer" },
+  { to: "/history",   icon: History,         label: "Run History"    },
+  { to: "/agent",     icon: Bot,             label: "MedoAI"         },
+  { to: "/settings",  icon: Settings,        label: "Settings"       },
 ];
 
 export default function Sidebar() {

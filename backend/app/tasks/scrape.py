@@ -152,10 +152,18 @@ def wave2_rescue(self, run_id: int) -> dict:
             patch_run(run_id, **{"+new_posts_found": rescued})
             log.info("wave2.rescued", target_id=target_id, posts=rescued)
 
-        # Always generate summary + pdf for this target (even if 0 — shows "no findings")
+        # Chain summary → pdf and wait (max 3 min). If it takes longer, skip and
+        # move on so the daily summary isn't blocked indefinitely.
         try:
-            generate_summary.apply_async(args=[target_id, run_id])
-            generate_target_pdf.apply_async(args=[target_id, run_id])
+            from celery import chain as _chain
+            from celery.exceptions import TimeoutError as CeleryTimeout
+            result = _chain(
+                generate_summary.si(target_id, run_id),
+                generate_target_pdf.si(target_id, run_id),
+            ).apply_async()
+            result.get(timeout=180, propagate=False)  # 3-min hard cap
+        except CeleryTimeout:
+            log.warning("wave2.summary_pdf_timeout", target_id=target_id, timeout=180)
         except Exception as exc:
             log.warning("wave2.summary_pdf_failed", target_id=target_id, exc=str(exc))
 

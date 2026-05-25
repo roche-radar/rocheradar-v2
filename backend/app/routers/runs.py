@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import RunLog, RunStatus, Target
+from app.config import get_settings
+settings = get_settings()
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -121,6 +123,15 @@ async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     run.celery_task_id = async_result.id
     await db.commit()
 
+    # Set Redis flag so TinyFish key allocation knows pipeline is active
+    try:
+        import redis as _redis
+        from app.services.scraper import PIPELINE_RUNNING_REDIS_KEY
+        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+        r.set(PIPELINE_RUNNING_REDIS_KEY, "1", ex=7200)  # 2h TTL
+    except Exception:
+        pass
+
     return {"run_id": run.id, "idempotency_key": idempotency_key, "targets": len(targets)}
 
 
@@ -167,6 +178,14 @@ async def stop_run(db: AsyncSession = Depends(get_db)):
             # Log but don't propagate — UI already reflects stopped state.
             import structlog
             structlog.get_logger(__name__).warning("stop_run.revoke_failed", exc=str(exc))
+
+    # Clear pipeline Redis flag
+    try:
+        import redis as _redis
+        from app.services.scraper import PIPELINE_RUNNING_REDIS_KEY
+        _redis.Redis.from_url(settings.redis_url, socket_timeout=2).delete(PIPELINE_RUNNING_REDIS_KEY)
+    except Exception:
+        pass
 
     return {"stopped": True, "cancelled": [r.id for r in runs]}
 
@@ -217,14 +236,17 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)):
 async def reset_all(db: AsyncSession = Depends(get_db)):
     """Delete all operational data (posts, insights, summaries, runs, blobs) — keeps targets and settings."""
     import os
-    from app.models import ExtractedInsight, PersonSummary, ScrapedPost
+    from app.models import ExtractedInsight, PersonSummary, ScrapedPost, AgentMessage
+    from app.models.discovery_result import DiscoveryResult
     from app.config import get_settings
 
-    # 1. DB: delete in FK-safe order
+    # 1. DB: delete in FK-safe order — all operational + discovery + chat
     await db.execute(delete(ExtractedInsight))
     await db.execute(delete(PersonSummary))
     await db.execute(delete(ScrapedPost))
     await db.execute(delete(RunLog))
+    await db.execute(delete(AgentMessage))
+    await db.execute(delete(DiscoveryResult))
     await db.commit()
 
     # 2. Vercel Blob: delete all reports/ blobs
@@ -257,12 +279,26 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
         except Exception as exc:
             pass  # non-fatal — DB is already clean
 
-    # 3. Redis: flush all keys (clears task results, wave2 rescue lists, rate-limit counters)
+    # 3. Revoke all in-flight Celery tasks before wiping Redis
+    try:
+        from app.tasks.celery_app import celery_app as _celery
+        _celery.control.revoke([], terminate=True, signal="SIGTERM")  # broadcast to all workers
+        import time; time.sleep(0.5)  # brief pause for workers to acknowledge
+    except Exception:
+        pass
+
+    # 4. Redis: flush ALL databases (DB0=app, DB1=Celery broker, DB2=Celery results)
     redis_reset = False
     try:
         import redis as _redis
-        r = _redis.Redis.from_url(settings.redis_url, socket_timeout=3)
-        r.flushdb()
+        # Parse base URL (strip /db suffix) and flush all DBs
+        base_url = settings.redis_url.rsplit("/", 1)[0]
+        for db_num in range(3):  # DB0, DB1, DB2
+            try:
+                r = _redis.Redis.from_url(f"{base_url}/{db_num}", socket_timeout=3)
+                r.flushdb()
+            except Exception:
+                pass
         redis_reset = True
     except Exception:
         pass

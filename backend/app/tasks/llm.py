@@ -49,10 +49,12 @@ def generate_summary(self, target_id: int, run_id: int) -> dict:
 
     log = logger.bind(target_id=target_id, run_id=run_id, task_id=self.request.id)
     log.info("generate_summary.started")
+    from app.tasks.utils import patch_run
     try:
         ctx = RunContext(run_id=run_id, task_id=self.request.id)
         result = ExtractorService().summarise(target_id=target_id, run_id=run_id, ctx=ctx)
         log.info("generate_summary.done")
+        patch_run(run_id, **{"+llm_calls_used": 1})
         return result
     except Exception as exc:
         log.warning("generate_summary.retry", exc=str(exc))

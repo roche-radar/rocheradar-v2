@@ -10,10 +10,6 @@ services:
     ports:
       - "6379:6379"
 
-  chromadb:
-    ports:
-      - "8002:8000"
-
   backend:
     build: ./backend
     volumes:

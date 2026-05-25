@@ -11,6 +11,7 @@ from pathlib import Path
 from app.config import get_settings
 from app.database import engine, Base
 from app.routers import targets, runs, reports, settings as settings_router, agent
+from app.routers import discovery as discovery_router
 
 _settings = get_settings()
 
@@ -136,6 +137,7 @@ app.include_router(runs.router)
 app.include_router(reports.router)
 app.include_router(settings_router.router)
 app.include_router(agent.router)
+app.include_router(discovery_router.router)
 
 
 @app.get("/health")

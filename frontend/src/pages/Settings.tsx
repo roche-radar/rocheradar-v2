@@ -352,7 +352,8 @@ function DestroyZone() {
       setDone(true);
       setOpen(false);
       setPass("");
-      qc.invalidateQueries();
+      // Clear all cached query data — agent history, discovery, insights, runs, stats
+      qc.clear();
     },
     onError: () => setError("Reset failed. Try again."),
   });
@@ -369,7 +370,7 @@ function DestroyZone() {
         <div>
           <h3 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h3>
           <p className="text-xs text-red-500 dark:text-red-500/70 mt-0.5">
-            Wipes all posts, insights, summaries, run history and PDFs. Targets and settings are kept.
+            Wipes all posts, insights, summaries, run history, PDFs, discovery results, chat history, and flushes all queues. Targets and settings are kept.
           </p>
         </div>
         <button

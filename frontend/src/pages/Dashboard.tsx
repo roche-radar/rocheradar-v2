@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
-import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -49,8 +49,25 @@ export default function Dashboard() {
   const [filterSentiment, setFilterSentiment] = useState("");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
+  const [drawerInsight, setDrawerInsight] = useState<Insight | null>(null);
+
+  // Chart click → slide-over panel
+  const [chartPanel, setChartPanel] = useState<{ label: string; type: "category"|"sentiment"|"kol"|"topic"; value: string } | null>(null);
 
   const { data: insights } = useQuery({ queryKey: ["latest-insights"], queryFn: () => api.reports.latest(100) });
+
+  const chartPanelInsights = useMemo(() => {
+    if (!chartPanel || !insights) return [];
+    const { type, value } = chartPanel;
+    const norm = (s: string) => s.toLowerCase().replace(/_/g, " ");
+    return insights.filter(i => {
+      if (type === "sentiment") return norm(i.sentiment || "") === norm(value);
+      if (type === "category")  return norm(i.category  || "") === norm(value);
+      if (type === "kol")       return i.target_name === value;
+      if (type === "topic")     return norm(i.topic || "").includes(norm(value));
+      return false;
+    });
+  }, [chartPanel, insights]);
 
   const targets = useMemo(() => [...new Set((insights ?? []).map(i => i.target_name))].sort(), [insights]);
   const categories = useMemo(() => [...new Set((insights ?? []).map(i => i.category).filter(Boolean))].sort(), [insights]);
@@ -59,15 +76,18 @@ export default function Dashboard() {
     const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10);
   }, []);
 
-  const filtered = useMemo(() => {
-    setPage(0);
-    return (insights ?? []).filter(i =>
+  const filtered = useMemo(() =>
+    (insights ?? []).filter(i =>
       (!filterTarget || i.target_name === filterTarget) &&
       (!filterCategory || i.category === filterCategory) &&
       (!filterSentiment || i.sentiment === filterSentiment) &&
       (!i.published_date || i.published_date >= oneYearAgo)
-    );
-  }, [insights, filterTarget, filterCategory, filterSentiment, oneYearAgo]);
+    ),
+    [insights, filterTarget, filterCategory, filterSentiment, oneYearAgo]
+  );
+
+  // Reset page when filters change — must be in useEffect, not useMemo
+  useEffect(() => { setPage(0); }, [filterTarget, filterCategory, filterSentiment, oneYearAgo]);
 
   const paginated = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -94,6 +114,7 @@ export default function Dashboard() {
   const hasTopics = topics && topics.total > 0;
 
   return (
+    <>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -180,57 +201,72 @@ export default function Dashboard() {
                 Most Discussed Topics — last {period} days
                 <span className="ml-2 text-roche-light font-bold">{topics.total} insights</span>
               </p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={topics.categories} layout="vertical"
-                  margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    formatter={(v) => [`${v} insights`, ""]}
-                  />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                    {topics.categories.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              {/* onMouseDown preventDefault stops the SVG getting focus (black border) */}
+              <div onMouseDown={e => e.preventDefault()}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={topics.categories} layout="vertical"
+                    margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                      formatter={(v) => [`${v} insights — click to view`, ""]} />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
+                      onClick={(data) => {
+                        if (data?.name) setChartPanel({ label: data.name, type: "category", value: data.name });
+                      }}>
+                      {topics.categories.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Sentiment pie */}
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sentiment</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={topics.sentiment} dataKey="count" nameKey="name"
-                    cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) =>
-                      `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                    } labelLine={false}>
-                    {topics.sentiment.map((entry) => (
-                      <Cell key={entry.name}
-                        fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => [`${v} insights`, ""]} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div onMouseDown={e => e.preventDefault()}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={topics.sentiment} dataKey="count" nameKey="name"
+                      cx="50%" cy="50%" outerRadius={70}
+                      cursor="pointer"
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                      labelLine={false}
+                      onClick={(entry) => {
+                        if (entry?.name) setChartPanel({ label: entry.name, type: "sentiment", value: entry.name });
+                      }}>
+                      {topics.sentiment.map((entry) => (
+                        <Cell key={entry.name}
+                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => [`${v} insights — click to view`, ""]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* Top KOLs bar */}
             {topics.top_kols.length > 0 && (
               <div className="lg:col-span-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Top KOLs by insights</p>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={topics.top_kols} layout="vertical"
-                    margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10 }} />
-                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                      formatter={(v) => [`${v} insights`, ""]} />
-                    <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div onMouseDown={e => e.preventDefault()}>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={topics.top_kols} layout="vertical"
+                      margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                      <XAxis type="number" tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10 }} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                        formatter={(v) => [`${v} insights — click to view`, ""]} />
+                      <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} cursor="pointer"
+                        onClick={(data) => {
+                          if (data?.name) setChartPanel({ label: data.name, type: "kol", value: data.name });
+                        }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
 
@@ -240,23 +276,15 @@ export default function Dashboard() {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Trending topics</p>
                 <div className="space-y-2">
                   {topics.top_topics.slice(0, 8).map((t) => (
-                    <div key={t.topic} className="flex items-center gap-2">
+                    <div key={t.topic}
+                      className="flex items-center gap-2 cursor-pointer group"
+                      onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
                       <div className="flex-1 min-w-0">
-                        {t.url ? (
-                          <a
-                            href={t.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs text-roche-light hover:text-roche-blue hover:underline truncate block"
-                            title={t.topic}
-                          >
-                            {t.topic}
-                          </a>
-                        ) : (
-                          <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate">{t.topic}</div>
-                        )}
+                        <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
+                          {t.topic}
+                        </div>
                         <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
-                          <div className="h-1.5 bg-roche-light rounded-full"
+                          <div className="h-1.5 bg-roche-light rounded-full group-hover:bg-roche-blue transition-colors"
                             style={{ width: `${(t.count / topics.top_topics[0].count) * 100}%` }} />
                         </div>
                       </div>
@@ -326,7 +354,7 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-3">
-          {paginated.map((ins) => <InsightCard key={ins.id} insight={ins} />)}
+          {paginated.map((ins) => <InsightCard key={ins.id} insight={ins} onClick={() => setDrawerInsight(ins)} />)}
           {!filtered.length && (
             <div className="text-center py-12 text-gray-400">
               {insights?.length ? "No results match the filters." : "No insights yet — run the pipeline to collect data."}
@@ -355,10 +383,139 @@ export default function Dashboard() {
         )}
       </div>
     </div>
+    {/* Chart click → insight list panel */}
+    {chartPanel && (
+      <div className="fixed inset-0 z-50 flex">
+        <div className="flex-1 bg-black/30" onClick={() => setChartPanel(null)} />
+        <div className="w-full max-w-lg bg-white dark:bg-[#111827] shadow-2xl flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-[#1e3a5f] shrink-0">
+            <div>
+              <p className="text-xs text-gray-400 dark:text-[#64748b] capitalize mb-0.5">{chartPanel.type === "kol" ? "KOL" : chartPanel.type}</p>
+              <h2 className="font-bold text-gray-900 dark:text-[#e2e8f0] text-base leading-snug">{chartPanel.label}</h2>
+              <p className="text-xs text-gray-400 mt-0.5">{chartPanelInsights.length} insight{chartPanelInsights.length !== 1 ? "s" : ""}</p>
+            </div>
+            <button onClick={() => setChartPanel(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-[#1e3a5f]/30 transition-all">
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {chartPanelInsights.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">No insights found for this selection.</div>
+            ) : (
+              chartPanelInsights.map(ins => (
+                <div key={ins.id}
+                  onClick={() => { setDrawerInsight(ins); setChartPanel(null); }}
+                  className="bg-gray-50 dark:bg-[#0a0f1e] rounded-xl p-4 border border-gray-100 dark:border-[#1e3a5f]/50 cursor-pointer hover:border-roche-light/40 hover:shadow-sm transition-all">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="text-xs font-semibold text-roche-light">{ins.target_name}</span>
+                        {ins.category && <span className="text-xs text-gray-400 dark:text-[#64748b]">{ins.category.replace(/_/g," ")}</span>}
+                      </div>
+                      <p className="text-sm font-medium text-gray-800 dark:text-[#e2e8f0] leading-snug">{ins.topic}</p>
+                    </div>
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full shrink-0 font-medium border",
+                      ins.sentiment === "positive" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800/30" :
+                      ins.sentiment === "negative" ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/30" :
+                      "bg-gray-100 text-gray-600 border-gray-200 dark:bg-[#1e3a5f]/30 dark:text-[#94a3b8] dark:border-[#1e3a5f]"
+                    )}>{ins.sentiment}</span>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-[#64748b] line-clamp-2 leading-relaxed">{ins.what_they_said}</p>
+                  {ins.published_date && (
+                    <p className="text-xs text-gray-400 dark:text-[#475569] mt-2">{ins.published_date}</p>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Insight Drawer */}
+    {drawerInsight && (
+      <div className="fixed inset-0 z-50 flex">
+        <div className="flex-1 bg-black/30" onClick={() => setDrawerInsight(null)} />
+        <div className="w-full max-w-md bg-white dark:bg-[#111827] shadow-2xl flex flex-col h-full overflow-y-auto">
+          {/* Drawer header */}
+          <div className="flex items-start justify-between p-5 border-b border-gray-100 dark:border-[#1e3a5f]">
+            <div>
+              <p className="text-xs font-medium text-roche-light mb-1">{drawerInsight.target_name}</p>
+              <h2 className="font-semibold text-gray-900 dark:text-[#e2e8f0] text-base leading-snug">{drawerInsight.topic}</h2>
+            </div>
+            <button onClick={() => setDrawerInsight(null)} className="ml-4 text-gray-400 hover:text-gray-600 shrink-0">
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Drawer body */}
+          <div className="p-5 space-y-5 flex-1">
+            {/* Sentiment + category */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", SENTIMENT_COLORS[drawerInsight.sentiment] ?? SENTIMENT_COLORS.neutral)}>
+                {drawerInsight.sentiment}
+              </span>
+              {drawerInsight.category && (
+                <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 dark:bg-[#1e3a5f]/40 text-gray-600 dark:text-[#94a3b8]">
+                  {drawerInsight.category.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+
+            {/* What they said */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">What they said</p>
+              <p className="text-sm text-gray-800 dark:text-[#e2e8f0] leading-relaxed">{drawerInsight.what_they_said}</p>
+            </div>
+
+            {/* Context */}
+            {drawerInsight.context && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Context</p>
+                <p className="text-sm text-gray-600 dark:text-[#94a3b8] leading-relaxed">{drawerInsight.context}</p>
+              </div>
+            )}
+
+            {/* Meta */}
+            <div className="pt-3 border-t border-gray-100 dark:border-[#1e3a5f]/50 space-y-2">
+              {drawerInsight.published_date && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Published</span>
+                  <span className="text-gray-600 dark:text-[#94a3b8]">{drawerInsight.published_date}</span>
+                </div>
+              )}
+              {drawerInsight.source_name && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Source</span>
+                  <span className="text-gray-600 dark:text-[#94a3b8]">{drawerInsight.source_name}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Source link */}
+            {drawerInsight.source_url && (
+              <a
+                href={drawerInsight.source_url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2.5 border border-roche-light text-roche-light rounded-lg text-sm font-medium hover:bg-roche-light hover:text-white transition-colors"
+              >
+                <ExternalLink size={14} /> View Original Post
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
-function InsightCard({ insight }: { insight: Insight }) {
+function InsightCard({ insight, onClick }: { insight: Insight; onClick: () => void }) {
+
   const sourceName = insight.source_name || (insight.source_url
     ? new URL(insight.source_url).hostname.replace("www.", "")
     : null);
@@ -368,13 +525,16 @@ function InsightCard({ insight }: { insight: Insight }) {
     : formatDateTime(insight.extracted_at);
 
   return (
-    <div className="bg-white dark:bg-[#111827] rounded-xl p-4 shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
+    <div
+      onClick={onClick}
+      className="bg-white dark:bg-[#111827] rounded-xl p-4 shadow-sm border border-gray-100 dark:border-[#1e3a5f] cursor-pointer hover:border-roche-light/40 hover:shadow-md transition-all"
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1.5">
             <span className="text-xs font-medium text-roche-light">{insight.target_name}</span>
             <span className="text-gray-300 dark:text-gray-600">·</span>
-            <span className="text-xs text-gray-400">{insight.category?.replace("_", " ")}</span>
+            <span className="text-xs text-gray-400">{insight.category?.replace(/_/g, " ")}</span>
           </div>
           <p className="font-medium text-sm mb-1">{insight.topic}</p>
           <p className="text-sm text-gray-600 dark:text-[#64748b] line-clamp-2">{insight.what_they_said}</p>
@@ -390,6 +550,7 @@ function InsightCard({ insight }: { insight: Insight }) {
             href={insight.source_url}
             target="_blank"
             rel="noreferrer"
+            onClick={e => e.stopPropagation()}
             className="flex items-center gap-1 text-xs text-roche-light hover:text-roche-blue transition-colors"
             title={`Open source: ${sourceName}`}
           >
