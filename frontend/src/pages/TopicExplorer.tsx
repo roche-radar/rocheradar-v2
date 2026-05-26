@@ -118,7 +118,7 @@ export default function TopicExplorer() {
     <div className="h-full flex flex-col overflow-hidden bg-[#f8fafc] dark:bg-[#070c19]">
 
       {/* ══ HEADER ══ */}
-      <div className="flex-none bg-white dark:bg-[#0d1424] border-b border-gray-200 dark:border-[#1e3a5f] px-5 py-2.5 flex items-center gap-4 z-20 shadow-sm">
+      <div className="flex-none glass-panel border-b border-slate-200/50 dark:border-white/10 px-5 py-2.5 flex items-center gap-4 z-20 shadow-sm">
         <div className="flex items-center gap-2 shrink-0">
           <div className="w-7 h-7 rounded-lg bg-roche-blue flex items-center justify-center">
             <Globe size={14} className="text-white" />
@@ -167,7 +167,7 @@ export default function TopicExplorer() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Sidebar ── */}
-        <div className="hidden lg:flex flex-col w-44 flex-none bg-white dark:bg-[#0d1424] border-r border-gray-100 dark:border-[#1e3a5f]/60 overflow-y-auto">
+        <div className="hidden lg:flex flex-col w-44 flex-none glass-panel border-r border-slate-200/50 dark:border-white/10 overflow-y-auto">
           <div className="p-3 space-y-0.5">
             {submitted && (
               <>
@@ -436,7 +436,7 @@ function DeepSearchModal({ query, onClose }: { query: string; onClose: () => voi
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#f8fafc] dark:bg-[#070c19]">
       {/* Header */}
-      <div className="flex-none bg-white dark:bg-[#0d1424] border-b border-gray-200 dark:border-[#1e3a5f] px-5 py-3 flex items-center gap-4">
+      <div className="flex-none glass-panel border-b border-slate-200/50 dark:border-white/10 px-5 py-3 flex items-center gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-roche-blue to-roche-light flex items-center justify-center shadow">
             <ScanSearch size={16} className="text-white"/>
@@ -469,7 +469,7 @@ function DeepSearchModal({ query, onClose }: { query: string; onClose: () => voi
       </div>
 
       {/* Filter bar */}
-      <div className="flex-none bg-white dark:bg-[#0d1424] border-b border-gray-100 dark:border-[#1e3a5f]/60 px-5 py-2 flex items-center gap-1.5 overflow-x-auto">
+      <div className="flex-none glass-panel border-b border-slate-200/50 dark:border-white/10 px-5 py-2 flex items-center gap-1.5 overflow-x-auto">
         {DEEP_FILTER_OPTIONS.map(f => (
           counts[f.id] !== undefined || f.id === "all" ? (
             <button key={f.id} onClick={() => setTypeFilter(f.id)}
@@ -546,7 +546,7 @@ function DeepResultRow({ result, index }: { result: DiscoveryResult; index: numb
 
   return (
     <a href={result.url} target="_blank" rel="noreferrer"
-      className="flex items-start gap-3 p-3.5 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f]/60 group hover:border-roche-blue/30 hover:shadow-sm transition-all">
+      className="flex items-start gap-3 p-3.5 glass-panel rounded-xl border border-slate-200/50 dark:border-white/10 group hover:border-roche-blue/30 hover:shadow-sm transition-all">
       {/* Rank */}
       <span className="text-xs font-bold text-gray-300 dark:text-[#334155] w-5 shrink-0 pt-0.5 text-right">
         {index + 1}
@@ -635,8 +635,8 @@ function KolCard({ insight, muted }: { insight: KolInsight; muted?: boolean }) {
 
   return (
     <div className={cn(
-      "bg-white dark:bg-[#111827] rounded-xl border overflow-hidden transition-all",
-      muted ? "border-gray-100 dark:border-[#1e3a5f]/40" : "border-gray-200 dark:border-[#1e3a5f]"
+      "glass-panel rounded-xl border overflow-hidden transition-all",
+      muted ? "border-slate-200/50 dark:border-white/5" : "border-slate-200/50 dark:border-white/10"
     )}>
       <div className="flex items-start gap-3 p-3.5">
         {/* KOL avatar */}
@@ -732,7 +732,7 @@ function SocialCard({ result, onClick }: { result: DiscoveryResult; onClick: () 
 
   return (
     <article onClick={onClick}
-      className="bg-white dark:bg-[#111827] rounded-2xl border border-gray-100 dark:border-[#1e3a5f]/60 overflow-hidden cursor-pointer group hover:border-roche-blue/30 hover:shadow-md transition-all flex flex-col">
+      className="glass-panel rounded-2xl border border-slate-200/50 dark:border-white/10 overflow-hidden cursor-pointer group hover:border-roche-blue/30 hover:shadow-md transition-all flex flex-col">
 
       {/* Branded platform header */}
       <div className="relative h-28 shrink-0 flex items-center justify-center overflow-hidden"
@@ -784,7 +784,7 @@ function SocialListRow({ result, onClick }: { result: DiscoveryResult; onClick: 
 
   return (
     <article onClick={onClick}
-      className="flex items-start gap-3 px-3 py-2.5 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f]/60 cursor-pointer group hover:border-roche-blue/30 hover:shadow-sm transition-all">
+      className="flex items-start gap-3 px-3 py-2.5 glass-panel rounded-xl border border-slate-200/50 dark:border-white/10 cursor-pointer group hover:border-roche-blue/30 hover:shadow-sm transition-all">
       {/* Platform icon */}
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
         style={{ background: platformBg }}>
@@ -813,7 +813,7 @@ function ArticleRow({ result, onClick }: { result: DiscoveryResult; onClick: () 
   const bg = domainBg(domain);
   return (
     <article onClick={onClick}
-      className="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f]/60 cursor-pointer group hover:border-roche-blue/30 hover:shadow-sm transition-all">
+      className="flex items-center gap-3 px-3 py-2.5 glass-panel rounded-xl border border-slate-200/50 dark:border-white/10 cursor-pointer group hover:border-roche-blue/30 hover:shadow-sm transition-all">
       <div className="w-12 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
         style={{background:result.thumbnail_url?undefined:bg}}>
         {result.thumbnail_url

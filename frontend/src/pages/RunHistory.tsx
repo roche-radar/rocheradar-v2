@@ -33,7 +33,7 @@ export default function RunHistory() {
 
 function RunCard({ run }: { run: RunOut }) {
   return (
-    <div className="bg-white dark:bg-[#111827] rounded-xl p-5 shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
+    <div className="glass rounded-xl p-5 shadow-sm border border-slate-200/50 dark:border-white/10">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">

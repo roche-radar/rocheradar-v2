@@ -4,31 +4,46 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 210 40% 98%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
-    --primary: 220 100% 27%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
     --muted: 210 40% 96%;
     --muted-foreground: 215 16% 47%;
     --border: 214 32% 91%;
-    --ring: 220 100% 27%;
+    --ring: 221 83% 53%;
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.5);
   }
-  /* Midnight blue dark mode */
+  
   .dark {
-    --background: 222 67% 8%;     /* #0a0f1e */
-    --foreground: 214 32% 91%;    /* #e2e8f0 */
-    --card: 222 47% 14%;          /* #111827 */
+    --background: 222 47% 11%;
+    --foreground: 214 32% 91%;
+    --card: 222 47% 14%;
     --card-foreground: 214 32% 91%;
-    --primary: 220 80% 55%;       /* #2563eb */
-    --primary-foreground: 0 0% 100%;
-    --muted: 220 50% 20%;         /* #1e2d4a */
-    --muted-foreground: 215 20% 58%; /* #94a3b8 */
-    --border: 220 52% 24%;        /* #1e3a5f */
-    --ring: 220 80% 55%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --border: 216 34% 17%;
+    --ring: 224.3 76.3% 48%;
+    --glass-bg: rgba(17, 24, 39, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
   }
 }
 
 * { box-sizing: border-box; }
-body { font-family: "Inter", system-ui, sans-serif; }
+body { 
+  font-family: "Inter", "Outfit", system-ui, sans-serif; 
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm;
+  }
+  .glass-panel {
+    @apply bg-slate-50/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800;
+  }
+}

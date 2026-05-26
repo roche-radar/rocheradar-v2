@@ -92,7 +92,7 @@ export default function Reports() {
               {summaries.map(pdf => {
                 const expanded = expandedSummaries.has(pdf.path);
                 return (
-                  <div key={pdf.path} className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f] overflow-hidden">
+                  <div key={pdf.path} className="glass rounded-xl shadow-sm border border-slate-200/50 dark:border-white/10 overflow-hidden">
                     <div
                       className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#1e2d4a]"
                       onClick={() => toggleSummary(pdf.path)}
@@ -139,7 +139,7 @@ export default function Reports() {
           {targets.length > 0 && (
             <div className="space-y-2">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Individual Reports</h2>
-              <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f] overflow-hidden">
+              <div className="glass rounded-xl shadow-sm border border-slate-200/50 dark:border-white/10 overflow-hidden">
                 <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[500px]">
                   <thead>
@@ -189,7 +189,7 @@ export default function Reports() {
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
           onClick={e => { if (e.target === e.currentTarget) setPreviewUrl(null); }}
         >
-          <div className="bg-white dark:bg-[#0a0f1e] rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col">
+          <div className="glass-panel rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-[#1e3a5f] shrink-0">
               <span className="font-medium text-sm text-gray-800 dark:text-[#e2e8f0] truncate">{previewName}</span>
               <button

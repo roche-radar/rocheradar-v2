@@ -10,6 +10,7 @@ import Agent from "@/pages/Agent";
 import TopicExplorer from "@/pages/TopicExplorer";
 import { useAppStore } from "@/store";
 import { cn } from "@/lib/utils";
+import AnimatedBackground from "@/components/AnimatedBackground";
 
 function Padded({ children }: { children: React.ReactNode }) {
   return (
@@ -28,7 +29,8 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-[#0a0f1e] text-gray-900 dark:text-[#e2e8f0]">
+      <div className="flex h-screen overflow-hidden text-slate-800 dark:text-slate-200">
+        <AnimatedBackground />
         <Sidebar />
         <main className={cn(
           "flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-200",

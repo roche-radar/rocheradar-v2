@@ -57,7 +57,7 @@ export default function Targets() {
       </div>
 
       {showAdd && (
-        <div className="bg-white dark:bg-[#111827] rounded-xl p-5 shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
+        <div className="glass-panel rounded-xl p-5 shadow-sm border border-slate-200/50 dark:border-white/10">
           <h2 className="font-semibold mb-4">New Target</h2>
           <div className="grid gap-3">
             <input
@@ -92,9 +92,9 @@ export default function Targets() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Loading...</div>
+        <div className="text-center py-12 text-slate-400">Loading...</div>
       ) : (
-        <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f] overflow-hidden">
+        <div className="glass rounded-xl shadow-sm border border-slate-200/50 dark:border-white/10 overflow-hidden">
           <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead>

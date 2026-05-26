@@ -9,26 +9,28 @@ import { api, type Insight } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
+const PIE_COLORS = ["#0066cc", "#0ea5e9", "#14b8a6", "#f59e0b", "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e"];
+const ROCHE_BLUE = "#0066cc";
+
 const PERIOD_OPTIONS = [
   { label: "7 days",  value: 7  },
   { label: "30 days", value: 30 },
   { label: "90 days", value: 90 },
 ];
 
-const PIE_COLORS = ["#0066cc", "#e94560", "#22c55e", "#f59e0b", "#8b5cf6", "#06b6d4", "#f97316", "#ec4899"];
-const ROCHE_BLUE = "#003087";
-
 function StatCard({ label, value, icon: Icon, sub }: {
   label: string; value: string | number; icon: React.ElementType; sub?: string;
 }) {
   return (
-    <div className="bg-white dark:bg-[#111827] rounded-xl p-5 shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm text-gray-500">{label}</span>
-        <Icon size={18} className="text-roche-light" />
+    <div className="glass rounded-xl p-5 relative overflow-hidden group">
+      <div className="flex items-center justify-between mb-3 relative">
+        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</span>
+        <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+          <Icon size={18} className="text-blue-600 dark:text-blue-400" />
+        </div>
       </div>
-      <div className="text-2xl font-bold">{value}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+      <div className="text-3xl font-bold text-slate-800 dark:text-slate-100 relative">{value}</div>
+      {sub && <div className="text-xs text-slate-500 mt-2 relative">{sub}</div>}
     </div>
   );
 }
@@ -135,7 +137,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard label="Active Targets" value={stats?.active_targets ?? "—"} icon={Users} />
         <StatCard label="Today's Insights" value={stats?.today_insights ?? "—"} icon={TrendingUp} />
         <StatCard label="Total Insights" value={stats?.total_insights ?? "—"} icon={FileText} />
@@ -145,20 +147,22 @@ export default function Dashboard() {
 
       {/* Active run progress */}
       {running && currentRun && (
-        <div className="bg-white dark:bg-[#111827] rounded-xl p-5 shadow-sm border border-blue-100 dark:border-blue-900">
+        <div className="glass-panel rounded-xl p-5 border border-blue-200 dark:border-blue-900/50">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <RefreshCw size={16} className="animate-spin text-roche-light" />
-              <span className="font-medium text-sm">
+              <RefreshCw size={16} className="animate-spin text-blue-500" />
+              <span className="font-medium text-sm text-blue-900 dark:text-blue-100">
                 Pipeline running — {currentRun.current_target ?? "initialising..."}
               </span>
             </div>
-            <span className="text-sm text-gray-500">{currentRun.targets_processed}/{currentRun.total_targets} targets</span>
+            <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">{currentRun.targets_processed}/{currentRun.total_targets} targets</span>
           </div>
-          <div className="w-full bg-gray-100 dark:bg-[#1e2d4a] rounded-full h-2">
-            <div className="bg-roche-light h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div className="w-full bg-slate-200/50 dark:bg-slate-800/50 rounded-full h-2 overflow-hidden shadow-inner">
+            <div className="bg-gradient-to-r from-blue-400 to-indigo-500 h-2 rounded-full transition-all duration-500 relative" style={{ width: `${progress}%` }}>
+              <div className="absolute inset-0 bg-white/20 animate-pulse" />
+            </div>
           </div>
-          <div className="flex gap-4 mt-3 text-xs text-gray-500">
+          <div className="flex gap-4 mt-3 text-xs font-medium text-slate-500 dark:text-slate-400">
             <span>{currentRun.new_posts_found} new posts</span>
             <span>{currentRun.insights_extracted} insights</span>
             <span>{currentRun.llm_calls_used} LLM calls</span>
@@ -167,10 +171,12 @@ export default function Dashboard() {
       )}
 
       {/* Intelligence Analytics */}
-      <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-100 dark:border-[#1e3a5f]">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5 pb-3 border-b border-gray-100 dark:border-[#1e3a5f]">
-          <div className="flex items-center gap-2">
-            <BarChart2 size={18} className="text-roche-light shrink-0" />
+      <div className="glass rounded-xl">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-6 pt-6 pb-4 border-b border-slate-200/50 dark:border-slate-800/50">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
+              <BarChart2 size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+            </div>
             <h2 className="font-semibold text-sm whitespace-nowrap">Intelligence Analytics</h2>
           </div>
           <div className="flex gap-1">
@@ -203,17 +209,22 @@ export default function Dashboard() {
               </p>
               {/* onMouseDown preventDefault stops the SVG getting focus (black border) */}
               <div onMouseDown={e => e.preventDefault()}>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={topics.categories} layout="vertical"
                     margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                      formatter={(v) => [`${v} insights — click to view`, ""]} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                      itemStyle={{ color: '#e2e8f0' }}
+                      formatter={(v) => [`${v} insights`, ""]} 
+                    />
                     <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
                       onClick={(data) => {
                         if (data?.name) setChartPanel({ label: data.name, type: "category", value: data.name });
-                      }}>
+                      }}
+                      animationDuration={1000}
+                    >
                       {topics.categories.map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
@@ -227,22 +238,29 @@ export default function Dashboard() {
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sentiment</p>
               <div onMouseDown={e => e.preventDefault()}>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie data={topics.sentiment} dataKey="count" nameKey="name"
-                      cx="50%" cy="50%" outerRadius={70}
+                      cx="50%" cy="50%" innerRadius={55} outerRadius={75}
                       cursor="pointer"
+                      paddingAngle={3}
                       label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                       labelLine={false}
+                      animationDuration={1000}
                       onClick={(entry) => {
                         if (entry?.name) setChartPanel({ label: entry.name, type: "sentiment", value: entry.name });
                       }}>
                       {topics.sentiment.map((entry) => (
                         <Cell key={entry.name}
-                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} />
+                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} 
+                          stroke="none"
+                        />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v) => [`${v} insights — click to view`, ""]} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '12px', border: 'none', color: '#f1f5f9' }}
+                      formatter={(v) => [`${v} insights — click to view`, ""]} 
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -256,11 +274,14 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={topics.top_kols} layout="vertical"
                       margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                      <XAxis type="number" tick={{ fontSize: 11 }} />
-                      <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10 }} />
-                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                        formatter={(v) => [`${v} insights — click to view`, ""]} />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9' }}
+                        formatter={(v) => [`${v} insights`, ""]} 
+                      />
                       <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} cursor="pointer"
+                        animationDuration={1000}
                         onClick={(data) => {
                           if (data?.name) setChartPanel({ label: data.name, type: "kol", value: data.name });
                         }} />
@@ -308,7 +329,7 @@ export default function Dashboard() {
           <select
             value={filterTarget}
             onChange={e => setFilterTarget(e.target.value)}
-            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-2 py-1 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+            className="text-xs border border-gray-200 dark:border-slate-800 rounded-lg px-2 py-1 bg-white dark:bg-slate-900 text-gray-600 dark:text-[#94a3b8]"
           >
             <option value="">All KOLs</option>
             {targets.map(t => <option key={t} value={t}>{t}</option>)}
@@ -318,7 +339,7 @@ export default function Dashboard() {
           <select
             value={filterCategory}
             onChange={e => setFilterCategory(e.target.value)}
-            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-2 py-1 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+            className="text-xs border border-gray-200 dark:border-slate-800 rounded-lg px-2 py-1 bg-white dark:bg-slate-900 text-gray-600 dark:text-[#94a3b8]"
           >
             <option value="">All categories</option>
             {categories.map(c => <option key={c} value={c}>{c?.replace(/_/g, " ")}</option>)}
@@ -387,9 +408,9 @@ export default function Dashboard() {
     {chartPanel && (
       <div className="fixed inset-0 z-50 flex">
         <div className="flex-1 bg-black/30" onClick={() => setChartPanel(null)} />
-        <div className="w-full max-w-lg bg-white dark:bg-[#111827] shadow-2xl flex flex-col h-full">
+        <div className="w-full max-w-lg bg-white dark:bg-slate-900 shadow-2xl flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-[#1e3a5f] shrink-0">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-800 shrink-0">
             <div>
               <p className="text-xs text-gray-400 dark:text-[#64748b] capitalize mb-0.5">{chartPanel.type === "kol" ? "KOL" : chartPanel.type}</p>
               <h2 className="font-bold text-gray-900 dark:text-[#e2e8f0] text-base leading-snug">{chartPanel.label}</h2>
@@ -408,7 +429,7 @@ export default function Dashboard() {
               chartPanelInsights.map(ins => (
                 <div key={ins.id}
                   onClick={() => { setDrawerInsight(ins); setChartPanel(null); }}
-                  className="bg-gray-50 dark:bg-[#0a0f1e] rounded-xl p-4 border border-gray-100 dark:border-[#1e3a5f]/50 cursor-pointer hover:border-roche-light/40 hover:shadow-sm transition-all">
+                  className="bg-gray-50 dark:bg-slate-800/50 rounded-xl p-4 border border-gray-100 dark:border-slate-700/50 cursor-pointer hover:border-roche-light/40 hover:shadow-sm transition-all">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -439,9 +460,9 @@ export default function Dashboard() {
     {drawerInsight && (
       <div className="fixed inset-0 z-50 flex">
         <div className="flex-1 bg-black/30" onClick={() => setDrawerInsight(null)} />
-        <div className="w-full max-w-md bg-white dark:bg-[#111827] shadow-2xl flex flex-col h-full overflow-y-auto">
+        <div className="w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl flex flex-col h-full overflow-y-auto">
           {/* Drawer header */}
-          <div className="flex items-start justify-between p-5 border-b border-gray-100 dark:border-[#1e3a5f]">
+          <div className="flex items-start justify-between p-5 border-b border-gray-100 dark:border-slate-800">
             <div>
               <p className="text-xs font-medium text-roche-light mb-1">{drawerInsight.target_name}</p>
               <h2 className="font-semibold text-gray-900 dark:text-[#e2e8f0] text-base leading-snug">{drawerInsight.topic}</h2>
@@ -527,7 +548,7 @@ function InsightCard({ insight, onClick }: { insight: Insight; onClick: () => vo
   return (
     <div
       onClick={onClick}
-      className="bg-white dark:bg-[#111827] rounded-xl p-4 shadow-sm border border-gray-100 dark:border-[#1e3a5f] cursor-pointer hover:border-roche-light/40 hover:shadow-md transition-all"
+      className="glass-panel rounded-xl p-5 cursor-pointer hover:bg-white/60 dark:hover:bg-slate-800/60 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">

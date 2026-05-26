@@ -140,7 +140,7 @@ export default function Agent() {
               "max-w-3xl rounded-xl px-4 py-3 text-sm",
               msg.role === "user"
                 ? "ml-auto bg-roche-blue text-white"
-                : "bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1e3a5f] text-gray-800 dark:text-[#e2e8f0]"
+                : "glass-panel text-slate-800 dark:text-slate-200"
             )}
           >
             {msg.role === "user"
@@ -150,7 +150,7 @@ export default function Agent() {
           </div>
         ))}
         {chatMut.isPending && (
-          <div className="max-w-3xl bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1e3a5f] rounded-xl px-4 py-3">
+          <div className="max-w-3xl glass-panel rounded-xl px-4 py-3">
             <div className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
@@ -168,7 +168,7 @@ export default function Agent() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
           placeholder="Ask about KOLs, recent findings, competitive intelligence..."
-          className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-[#1e3a5f] rounded-xl text-sm bg-white dark:bg-[#111827] focus:outline-none focus:ring-2 focus:ring-roche-light"
+          className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-white/10 rounded-xl text-sm glass focus:outline-none focus:ring-2 focus:ring-roche-light placeholder:text-slate-400"
         />
         <button
           onClick={send}

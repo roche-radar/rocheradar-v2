@@ -38,7 +38,7 @@ function PipelineStatus() {
     : "No active pipeline";
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f] shadow-sm">
+    <div className="flex items-center justify-between px-4 py-3 glass rounded-xl shadow-sm">
       <div className="flex items-center gap-3 min-w-0">
         <Activity size={15} className="text-roche-light shrink-0" />
         <span className="text-xs font-medium text-gray-500 dark:text-[#94a3b8] shrink-0">Pipeline</span>
@@ -389,7 +389,7 @@ function DestroyZone() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white dark:bg-[#111827] rounded-xl border border-red-200 dark:border-red-900/40 shadow-xl p-6 w-full max-w-sm space-y-4">
+          <div className="glass rounded-xl border border-red-200 dark:border-red-900/40 shadow-xl p-6 w-full max-w-sm space-y-4">
             <div className="flex items-center gap-2 text-red-600">
               <Trash2 size={18} />
               <h3 className="font-semibold">Confirm Destroy</h3>
@@ -446,7 +446,7 @@ function Card({ icon, title, subtitle, children }: {
   icon: React.ReactNode; title: string; subtitle?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-[#1e3a5f] shadow-sm overflow-hidden">
+    <div className="glass-panel rounded-xl shadow-sm overflow-hidden">
       {/* Card header */}
       <div className="px-5 py-4 border-b border-gray-100 dark:border-[#1e3a5f]/60 bg-gray-50/50 dark:bg-[#0a0f1e]/40">
         <div className="flex items-center gap-2">
