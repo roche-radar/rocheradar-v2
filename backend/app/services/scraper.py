@@ -62,6 +62,11 @@ _EXTENDED_DAYS    = 365
 _FETCH_WORKERS    = 5   # parallel URL fetches per target
 _SEARCH_WORKERS   = 5   # parallel search queries per target
 
+# Set to True when any TinyFish account reports "Insufficient credits" for agent calls.
+# Short-circuits wave 2 so we don't burn 120s timeouts on every URL pointlessly.
+_AGENT_CREDITS_EXHAUSTED: bool = False
+_AGENT_CREDITS_LOCK = threading.Lock()
+
 ROCHE_DRUGS = [
     "Tecentriq", "Ocrevus", "Hemlibra", "Kadcyla", "Perjeta",
     "Avastin", "Herceptin", "Xolair", "Polivy", "Lunsumio",
@@ -255,8 +260,15 @@ def _run_tf(args: list[str], timeout: int = 120, pipeline_mode: bool = True) -> 
     try:
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         if r.returncode != 0:
+            stderr_snippet = (r.stderr or "")[:300]
             logger.debug("tinyfish.nonzero", cmd=args[1] if len(args) > 1 else "",
-                         returncode=r.returncode, stderr=(r.stderr or "")[:200])
+                         returncode=r.returncode, stderr=stderr_snippet[:200])
+            if "insufficient credits" in stderr_snippet.lower() or "0 credits remaining" in stderr_snippet.lower():
+                global _AGENT_CREDITS_EXHAUSTED
+                with _AGENT_CREDITS_LOCK:
+                    if not _AGENT_CREDITS_EXHAUSTED:
+                        logger.warning("tinyfish.agent_credits_exhausted", key=key)
+                        _AGENT_CREDITS_EXHAUSTED = True
             return {}, key
         out = r.stdout.strip()
         try:
@@ -763,7 +775,9 @@ class ScrapeService:
         loop = asyncio.get_running_loop()
         logger.info("scrape.wave2.start", target=name, urls=len(agent_targets))
         for url in agent_targets:
-            if ctx.should_stop or not _agent_can_consume(ctx.run_id):
+            if ctx.should_stop or _AGENT_CREDITS_EXHAUSTED or not _agent_can_consume(ctx.run_id):
+                if _AGENT_CREDITS_EXHAUSTED:
+                    logger.info("scrape.wave2.skip_credits_exhausted", target=name)
                 break
             result = await loop.run_in_executor(
                 None, _process_url_agent, url, target_id, idempotency_key, ctx.run_id
