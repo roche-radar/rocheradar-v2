@@ -7,8 +7,10 @@ import {
   ChevronDown, ChevronUp, History, Star, MessageCircle, Linkedin,
   ScanSearch, Link2, FlaskConical
 } from "lucide-react";
-import { api, type DiscoveryResult, type DiscoveryContent, type KolInsight } from "@/lib/api";
+import { api, type DiscoveryResult, type DiscoveryContent, type KolInsight, type SocialPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { DescribeModal as SocialDescribeModal } from "./SocialTrends";
+import { Flame, Heart } from "lucide-react";
 
 /* ─── constants ──────────────────────────────────────────── */
 
@@ -81,6 +83,39 @@ export default function TopicExplorer() {
     enabled: submitted.length > 1,
   });
 
+  // ── Social Trends (Apify) ──
+  // Cached matches show for free on every search; an explicit button spends Apify
+  // credits to pull fresh posts, then we poll a few times to surface them.
+  const [socialActive, setSocialActive] = useState<SocialPost | null>(null);
+  const [socialPolls, setSocialPolls] = useState(0);
+  const [socialSearching, setSocialSearching] = useState(false);
+
+  const { data: appSettings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const apifyOn = !!appSettings?.apify_configured;
+
+  // Cached social matches (no Apify cost). Re-keys on socialPolls so polling re-reads.
+  const { data: socialCached } = useQuery({
+    queryKey: ["social-disc", submitted, socialPolls],
+    queryFn: () => api.social.discover(submitted, false),
+    enabled: submitted.length > 1,
+  });
+
+  // Explicit "Search social" — triggers a live Apify pull for the current query.
+  const socialSearchMut = useMutation({
+    mutationFn: () => api.social.discover(submitted, true),
+    onSuccess: () => { setSocialPolls(0); setSocialSearching(true); },
+  });
+
+  useEffect(() => { setSocialSearching(false); setSocialPolls(0); }, [submitted]);
+  useEffect(() => {
+    if (!socialSearching) return;
+    if (socialPolls >= 6) { setSocialSearching(false); return; }
+    const t = setTimeout(() => setSocialPolls(p => p + 1), 5000);
+    return () => clearTimeout(t);
+  }, [socialSearching, socialPolls]);
+
+  const socialPosts = socialCached?.results ?? [];
+
   function run(q?: string, refresh = false) {
     const term = (q ?? query).trim();
     if (!term) return;
@@ -144,6 +179,17 @@ export default function TopicExplorer() {
               title="Deep Search — fetch everything from the internet about this topic"
               className="h-9 px-3 border border-roche-blue/40 hover:border-roche-blue text-roche-blue hover:bg-roche-blue/5 text-sm font-semibold rounded-lg flex items-center gap-1.5 transition-all shrink-0">
               <ScanSearch size={14}/><span className="hidden sm:block">Deep</span>
+            </button>
+          )}
+          {submitted && (
+            <button onClick={() => socialSearchMut.mutate()}
+              disabled={!apifyOn || socialSearching || socialSearchMut.isPending}
+              title={apifyOn ? "Search social media (Instagram, X, TikTok, Facebook) via Apify" : "Set APIFY_API_TOKEN to enable social search"}
+              className="h-9 px-3 border border-orange-400/50 hover:border-orange-500 text-orange-600 dark:text-orange-400 hover:bg-orange-500/5 text-sm font-semibold rounded-lg flex items-center gap-1.5 transition-all shrink-0 disabled:opacity-40">
+              {socialSearching
+                ? <RefreshCw size={14} className="animate-spin"/>
+                : <Flame size={14}/>}
+              <span className="hidden sm:block">Social</span>
             </button>
           )}
         </div>
@@ -295,6 +341,25 @@ export default function TopicExplorer() {
                 </Section>
               )}
 
+              {/* ── SECTION: Social Trends (Apify) ── */}
+              {showWebSocial && (socialPosts.length > 0 || socialSearching) && (
+                <Section
+                  icon={<Flame size={15} className="text-orange-500"/>}
+                  title="Social Trends"
+                  subtitle={socialSearching
+                    ? "Pulling latest from Instagram, X, TikTok & Facebook…"
+                    : `${socialPosts.length} post${socialPosts.length!==1?"s":""} across social platforms`}
+                  accent="amber"
+                  loading={socialSearching && socialPosts.length === 0}
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {socialPosts.map(p => (
+                      <SocialTrendCard key={p.id} post={p} onClick={() => setSocialActive(p)}/>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
               {/* ── SECTION 3: Social Media ── */}
               {showWebSocial && webSocial.length > 0 && (
                 <Section
@@ -405,6 +470,52 @@ export default function TopicExplorer() {
       {deepOpen && submitted && (
         <DeepSearchModal query={submitted} onClose={() => setDeepOpen(false)}/>
       )}
+
+      {socialActive && (
+        <SocialDescribeModal post={socialActive} onClose={() => setSocialActive(null)}/>
+      )}
+    </div>
+  );
+}
+
+/* ─── social trend card (Apify) ──────────────────────────── */
+
+const SOCIAL_PLATFORM_CLS: Record<string, string> = {
+  instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
+  twitter: "bg-sky-100 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300",
+  tiktok: "bg-slate-200 text-slate-800 dark:bg-slate-700/40 dark:text-slate-200",
+  facebook: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300",
+};
+
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n/1_000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+function SocialTrendCard({ post, onClick }: { post: SocialPost; onClick: () => void }) {
+  return (
+    <div onClick={onClick}
+      className="glass-panel rounded-xl overflow-hidden cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col">
+      {post.thumbnail_url && (
+        <div className="h-28 bg-slate-100 dark:bg-[#0d1424] overflow-hidden">
+          <img src={post.thumbnail_url} alt="" loading="lazy" className="w-full h-full object-cover"
+            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}/>
+        </div>
+      )}
+      <div className="p-3 flex-1 flex flex-col">
+        <div className="flex items-center gap-2 mb-1">
+          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", SOCIAL_PLATFORM_CLS[post.platform] ?? "bg-gray-100 text-gray-600")}>
+            {post.platform}
+          </span>
+          {post.author && <span className="text-[11px] font-semibold text-roche-light truncate">{post.author}</span>}
+        </div>
+        <p className="text-xs text-gray-600 dark:text-[#94a3b8] line-clamp-3 flex-1">{post.text || "—"}</p>
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-100 dark:border-[#1e3a5f]/40 text-[11px] text-gray-500 dark:text-[#64748b]">
+          {post.likes > 0 && <span className="flex items-center gap-1"><Heart size={11}/>{compact(post.likes)}</span>}
+          {post.comments > 0 && <span className="flex items-center gap-1"><MessageCircle size={11}/>{compact(post.comments)}</span>}
+        </div>
+      </div>
     </div>
   );
 }

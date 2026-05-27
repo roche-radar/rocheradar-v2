@@ -37,6 +37,11 @@ dependencies = [
 
     # Embeddings
     "voyageai>=0.3.0",
+    "fastembed>=0.4.0",
+    "pgvector>=0.3.0",
+
+    # Social scraping
+    "apify-client>=1.7.0",
 
     # Utils
     "pydantic-settings>=2.7.0",

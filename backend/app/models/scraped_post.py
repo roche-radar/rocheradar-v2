@@ -22,6 +22,8 @@ class ScrapedPost(Base):
     # SHA256 of normalised content — primary dedup key
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
 
+    likes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
 

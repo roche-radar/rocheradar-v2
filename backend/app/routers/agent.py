@@ -1,18 +1,70 @@
-"""Hermes AI chat endpoint — RAG over extracted insights."""
+"""Hermes AI chat endpoint — RAG over extracted insights + social posts."""
 import asyncio
+import re
 from functools import partial
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AgentMessage, ExtractedInsight, Target
+from app.models import AgentMessage, ExtractedInsight, Target, SocialPost
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 _MAX_CONTEXT_INSIGHTS = 30
+_MAX_SOCIAL_CONTEXT = 15
+
+# Words that signal the user wants social/trend data
+_SOCIAL_KEYWORDS = re.compile(
+    r"\b(social|trend|trending|instagram|tiktok|twitter|facebook|post|hashtag|"
+    r"patient|public|people|saying|discuss|viral|engagement|likes|views)\b",
+    re.IGNORECASE,
+)
+
+
+async def _fetch_social_context(message: str, db: AsyncSession) -> str | None:
+    """Search social_posts for terms from the user message. Returns a formatted
+    context block, or None if no relevant posts found."""
+    # Extract meaningful words (3+ chars, skip stopwords)
+    stopwords = {"what", "about", "the", "and", "for", "are", "that", "this",
+                 "with", "from", "have", "tell", "show", "give", "find", "any"}
+    words = [w for w in re.findall(r"[a-zA-Z]{3,}", message.lower()) if w not in stopwords]
+    if not words:
+        return None
+
+    # Build OR conditions for the most specific words (up to 4)
+    search_terms = words[:4]
+    conditions = []
+    for term in search_terms:
+        like = f"%{term}%"
+        conditions.extend([
+            func.lower(SocialPost.text).like(like),
+            func.lower(SocialPost.topic).like(like),
+            func.lower(SocialPost.hashtags).like(like),
+        ])
+
+    rows = await db.execute(
+        select(SocialPost)
+        .where(or_(*conditions))
+        .order_by(desc(SocialPost.scraped_at))
+        .limit(_MAX_SOCIAL_CONTEXT)
+    )
+    posts = rows.scalars().all()
+    if not posts:
+        return None
+
+    lines = [f"SOCIAL MEDIA DATA ({len(posts)} relevant posts from the database):"]
+    for p in posts:
+        eng = (p.likes or 0) + (p.comments or 0) + (p.shares or 0)
+        date = p.posted_at.strftime("%Y-%m-%d") if p.posted_at else "?"
+        text = (p.text or "")[:300].replace("\n", " ")
+        lines.append(
+            f"[{p.platform}] @{p.author or '?'} | {date} | {eng:,} engagements | "
+            f"topic:{p.topic or '-'} | {text}"
+        )
+    return "\n".join(lines)
 
 
 class ChatRequest(BaseModel):
@@ -28,7 +80,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     prompt_path = Path(__file__).parent.parent / "prompts" / "agent.txt"
     system_prompt = prompt_path.read_text(encoding="utf-8")
 
-    # Retrieve recent insights as RAG context
+    # Retrieve recent KOL insights as RAG context
     rows = await db.execute(
         select(ExtractedInsight, Target)
         .join(Target, ExtractedInsight.target_id == Target.id)
@@ -41,6 +93,9 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     ]
     context_text = "\n".join(context_chunks)
 
+    # Always search social posts for the user's query
+    social_context = await _fetch_social_context(body.message, db)
+
     # Load conversation history
     history_rows = await db.execute(
         select(AgentMessage).order_by(AgentMessage.created_at).limit(20)
@@ -48,7 +103,9 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     history = history_rows.scalars().all()
     messages = [{"role": "system", "content": system_prompt}]
     if context_text:
-        messages.append({"role": "system", "content": f"RECENT INTELLIGENCE CONTEXT:\n{context_text}"})
+        messages.append({"role": "system", "content": f"RECENT KOL INTELLIGENCE:\n{context_text}"})
+    if social_context:
+        messages.append({"role": "system", "content": social_context})
     for h in history:
         messages.append({"role": h.role, "content": h.content})
     messages.append({"role": "user", "content": body.message})

@@ -13,6 +13,7 @@ class TargetCreate(BaseModel):
     name: str
     known_urls: list[str] = []
     notes: str | None = None
+    disease_area: str | None = None
 
 
 class TargetUpdate(BaseModel):
@@ -20,6 +21,7 @@ class TargetUpdate(BaseModel):
     known_urls: list[str] | None = None
     notes: str | None = None
     active: bool | None = None
+    disease_area: str | None = None
 
 
 class TargetOut(BaseModel):
@@ -28,6 +30,7 @@ class TargetOut(BaseModel):
     known_urls: list[str]
     notes: str | None
     active: bool
+    disease_area: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -42,7 +45,7 @@ async def list_targets(db: AsyncSession = Depends(get_db)):
         result.append(TargetOut(
             id=t.id, name=t.name,
             known_urls=json.loads(t.known_urls or "[]"),
-            notes=t.notes, active=t.active,
+            notes=t.notes, active=t.active, disease_area=t.disease_area,
         ))
     return result
 
@@ -50,13 +53,13 @@ async def list_targets(db: AsyncSession = Depends(get_db)):
 @router.post("/", response_model=TargetOut, status_code=status.HTTP_201_CREATED)
 async def create_target(body: TargetCreate, db: AsyncSession = Depends(get_db)):
     import json
-    target = Target(name=body.name, known_urls=json.dumps(body.known_urls), notes=body.notes)
+    target = Target(name=body.name, known_urls=json.dumps(body.known_urls), notes=body.notes, disease_area=body.disease_area)
     db.add(target)
     await db.commit()
     await db.refresh(target)
     return TargetOut(id=target.id, name=target.name,
                      known_urls=json.loads(target.known_urls or "[]"),
-                     notes=target.notes, active=target.active)
+                     notes=target.notes, active=target.active, disease_area=target.disease_area)
 
 
 @router.put("/{target_id}", response_model=TargetOut)
@@ -73,11 +76,13 @@ async def update_target(target_id: int, body: TargetUpdate, db: AsyncSession = D
         target.notes = body.notes
     if body.active is not None:
         target.active = body.active
+    if body.disease_area is not None:
+        target.disease_area = body.disease_area
     await db.commit()
     await db.refresh(target)
     return TargetOut(id=target.id, name=target.name,
                      known_urls=json.loads(target.known_urls or "[]"),
-                     notes=target.notes, active=target.active)
+                     notes=target.notes, active=target.active, disease_area=target.disease_area)
 
 
 @router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT)

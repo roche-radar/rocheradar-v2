@@ -8,6 +8,7 @@ import {
 import { api, type Insight } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
+import SocialTrendsSummary from "./SocialTrendsSummary";
 
 const PIE_COLORS = ["#0066cc", "#0ea5e9", "#14b8a6", "#f59e0b", "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e"];
 const ROCHE_BLUE = "#0066cc";
@@ -93,11 +94,17 @@ export default function Dashboard() {
 
   const paginated = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const [diseaseFilter, setDiseaseFilter] = useState<string>("all");
   const { data: topics } = useQuery({
-    queryKey: ["topics", period],
-    queryFn: () => api.topics(period),
+    queryKey: ["topics", period, diseaseFilter],
+    queryFn: () => api.topics(period, diseaseFilter),
     refetchInterval: 30_000,
   });
+  const { data: allTargets } = useQuery({ queryKey: ["targets"], queryFn: api.targets.list });
+  const diseaseAreas = useMemo(() => {
+    const areas = [...new Set((allTargets || []).map(t => t.disease_area).filter(Boolean))] as string[];
+    return areas;
+  }, [allTargets]);
 
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
@@ -294,30 +301,52 @@ export default function Dashboard() {
             {/* Top topics list */}
             {topics.top_topics.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Trending topics</p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Trending topics</p>
+                  {diseaseAreas.length > 0 && (
+                    <select
+                      value={diseaseFilter}
+                      onChange={e => setDiseaseFilter(e.target.value)}
+                      className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded px-2 py-0.5 bg-transparent text-gray-600 dark:text-[#94a3b8]"
+                    >
+                      <option value="all">All areas</option>
+                      {diseaseAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  )}
+                </div>
                 <div className="space-y-2">
-                  {topics.top_topics.slice(0, 8).map((t) => (
-                    <div key={t.topic}
-                      className="flex items-center gap-2 cursor-pointer group"
-                      onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
-                          {t.topic}
+                  {topics.top_topics.slice(0, 8).map((t) => {
+                    const maxScore = topics.top_topics[0].trend_score || 1;
+                    const barWidth = Math.max(4, (t.trend_score / maxScore) * 100);
+                    return (
+                      <div key={t.topic}
+                        className="flex items-center gap-2 cursor-pointer group"
+                        onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
+                            {t.topic}
+                          </div>
+                          <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
+                            <div className="h-1.5 bg-roche-light rounded-full group-hover:bg-roche-blue transition-colors"
+                              style={{ width: `${barWidth}%` }} />
+                          </div>
                         </div>
-                        <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
-                          <div className="h-1.5 bg-roche-light rounded-full group-hover:bg-roche-blue transition-colors"
-                            style={{ width: `${(t.count / topics.top_topics[0].count) * 100}%` }} />
+                        <div className="flex items-center gap-1 shrink-0">
+                          {t.likes > 0 && <span className="text-[10px] text-gray-400">♥{t.likes > 999 ? `${(t.likes/1000).toFixed(1)}k` : t.likes}</span>}
+                          <span className="text-xs font-semibold text-roche-light">{t.count}</span>
                         </div>
                       </div>
-                      <span className="text-xs font-semibold text-roche-light shrink-0">{t.count}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Social trending analytics (compact) → full page at /social */}
+      <SocialTrendsSummary />
 
       {/* Recent insights feed */}
       <div>

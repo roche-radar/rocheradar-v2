@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -44,6 +44,19 @@ class AppSettings(Base):
     # Budget limits
     agent_budget_per_run: Mapped[int] = mapped_column(Integer, default=250)
     llm_budget_hard_stop: Mapped[int] = mapped_column(Integer, default=500)
+
+    # Social trend scan (Apify)
+    social_keywords: Mapped[str | None] = mapped_column(Text)            # JSON list of hashtags/keywords for IG/TikTok/Twitter
+    social_platforms: Mapped[str] = mapped_column(String(256), default='["instagram","twitter","tiktok","facebook"]')
+    social_window_days: Mapped[int] = mapped_column(Integer, default=180)
+    social_max_per_query: Mapped[int] = mapped_column(Integer, default=30)
+    social_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    social_scan_frequency: Mapped[str] = mapped_column(String(16), default="weekly")
+    social_scan_hour: Mapped[int] = mapped_column(Integer, default=6)
+    social_include_kols: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Facebook uses apify/facebook-posts-scraper with known page URLs (not keyword search).
+    # Defaults are seeded with major pharma + oncology pages in main.py.
+    facebook_page_urls: Mapped[str | None] = mapped_column(Text)         # JSON list of FB page URLs
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

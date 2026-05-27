@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import {
   Save, RefreshCw, CheckCircle, XCircle, ChevronDown,
   Cpu, Calendar, Gauge, Info, Activity, Square, Trash2,
+  Flame, Play, Loader2,
 } from "lucide-react";
 import { api, type AppSettings } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -313,6 +314,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── Social trend scan ── */}
+      <SocialScanCard form={form} set={set} apifyConfigured={!!settings?.apify_configured} />
+
       {/* ── Save button ── */}
       <div className="flex flex-wrap items-center gap-4">
         <button onClick={() => updateMut.mutate()} disabled={updateMut.isPending}
@@ -334,6 +338,185 @@ export default function SettingsPage() {
       <DestroyZone />
 
     </div>
+  );
+}
+
+// ── Social Trend Scan ────────────────────────────────────
+
+const SOCIAL_PLATFORMS = [
+  { value: "instagram", label: "Instagram" },
+  { value: "twitter",   label: "X / Twitter" },
+  { value: "tiktok",    label: "TikTok" },
+  { value: "facebook",  label: "Facebook" },
+];
+
+function SocialScanCard({ form, set, apifyConfigured }: {
+  form: Partial<AppSettings>; set: (k: string, v: unknown) => void; apifyConfigured: boolean;
+}) {
+  const qc = useQueryClient();
+  const keywords = form.social_keywords ?? [];
+  const platforms = form.social_platforms ?? [];
+  const fbPages = form.facebook_page_urls ?? [];
+
+  const { data: status } = useQuery({
+    queryKey: ["social-status"],
+    queryFn: api.social.status,
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : 30000),
+  });
+  const scanMut = useMutation({
+    mutationFn: api.social.scan,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["social-status"] }),
+  });
+
+  const running = status?.running;
+
+  function togglePlatform(p: string) {
+    const next = platforms.includes(p) ? platforms.filter(x => x !== p) : [...platforms, p];
+    set("social_platforms", next);
+  }
+
+  return (
+    <Card icon={<Flame size={16} />} title="Social Trend Scan"
+      subtitle="Scrape Instagram, X, TikTok & Facebook via Apify for trending medical / Roche topics">
+
+      {!apifyConfigured && (
+        <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400
+          bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2.5">
+          <Info size={13} className="shrink-0 mt-0.5" />
+          <span>Set <code className="font-mono">APIFY_API_TOKEN</code> in <code className="font-mono">.env</code> to enable scanning.</span>
+        </div>
+      )}
+
+      {/* Keywords */}
+      <Field label="Keywords & hashtags (medical field, drugs, treatments)">
+        <textarea
+          value={keywords.join(", ")}
+          onChange={e => set("social_keywords",
+            e.target.value.split(/[,\n]/).map(s => s.trim()).filter(Boolean))}
+          rows={3}
+          placeholder="Tecentriq, oncology, lungcancer, immunotherapy…"
+          className={`${input} font-mono resize-y`}
+        />
+        <p className="text-xs text-gray-400 dark:text-[#64748b] mt-1">{keywords.length} terms — comma or newline separated</p>
+      </Field>
+
+      {/* Facebook page URLs */}
+      <Field label="Facebook pages to scrape (one URL per line)">
+        <textarea
+          value={fbPages.join("\n")}
+          onChange={e => set("facebook_page_urls",
+            e.target.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean))}
+          rows={4}
+          placeholder="https://www.facebook.com/roche&#10;https://www.facebook.com/Novartis"
+          className={`${input} font-mono text-xs resize-y`}
+        />
+        <p className="text-xs text-gray-400 dark:text-[#64748b] mt-1">
+          {fbPages.length} pages — Facebook scraping uses known page URLs, not keyword search
+        </p>
+      </Field>
+
+      {/* Platforms */}
+      <Field label="Platforms">
+        <div className="flex flex-wrap gap-2">
+          {SOCIAL_PLATFORMS.map(p => (
+            <button key={p.value} type="button" onClick={() => togglePlatform(p.value)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                platforms.includes(p.value)
+                  ? "bg-roche-blue text-white border-roche-blue dark:bg-[#2563eb] dark:border-[#2563eb]"
+                  : "border-gray-200 dark:border-[#1e3a5f] text-gray-500 dark:text-[#94a3b8] hover:border-roche-light"
+              )}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {/* Window + max per query */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Time window (days)">
+          <input type="number" min={1} value={form.social_window_days ?? 180}
+            onChange={e => set("social_window_days", Number(e.target.value))} className={input} />
+          <p className="text-xs text-gray-400 dark:text-[#64748b] mt-1">Only posts newer than this</p>
+        </Field>
+        <Field label="Max posts / query">
+          <input type="number" min={1} value={form.social_max_per_query ?? 30}
+            onChange={e => set("social_max_per_query", Number(e.target.value))} className={input} />
+          <p className="text-xs text-gray-400 dark:text-[#64748b] mt-1">Higher = more Apify cost</p>
+        </Field>
+      </div>
+
+      {/* Include KOLs toggle */}
+      <div className="flex items-center justify-between py-1">
+        <div>
+          <p className="text-sm font-medium">Include KOLs</p>
+          <p className="text-xs text-gray-400 dark:text-[#64748b]">Also search KOL names (X & Facebook)</p>
+        </div>
+        <Toggle value={!!form.social_include_kols} onChange={v => set("social_include_kols", v)} />
+      </div>
+
+      {/* Schedule */}
+      <div className="pt-1 border-t border-gray-100 dark:border-[#1e3a5f]/50">
+        <div className="flex items-center justify-between py-1">
+          <div>
+            <p className="text-sm font-medium">Auto-run on schedule</p>
+            <p className="text-xs text-gray-400 dark:text-[#64748b]">
+              When on, the scan runs automatically (weekly = Mondays). Off = manual button only.
+            </p>
+          </div>
+          <Toggle value={!!form.social_scan_enabled} onChange={v => set("social_scan_enabled", v)} />
+        </div>
+
+        {form.social_scan_enabled && (
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <Field label="Schedule frequency">
+              <div className="grid grid-cols-2 gap-2">
+                {(["weekly", "daily"] as const).map(f => (
+                  <button key={f} type="button" onClick={() => set("social_scan_frequency", f)}
+                    className={cn(
+                      "py-2 rounded-lg text-sm font-medium border transition-colors",
+                      (form.social_scan_frequency ?? "weekly") === f
+                        ? "bg-roche-blue text-white border-roche-blue dark:bg-[#2563eb] dark:border-[#2563eb]"
+                        : "border-gray-200 dark:border-[#1e3a5f] text-gray-500 dark:text-[#94a3b8] hover:border-roche-light"
+                    )}>
+                    {f === "weekly" ? "Weekly" : "Daily"}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Hour (0–23)">
+              <input type="number" min={0} max={23} value={form.social_scan_hour ?? 6}
+                onChange={e => set("social_scan_hour", Number(e.target.value))} className={input} />
+            </Field>
+          </div>
+        )}
+      </div>
+
+      {/* Run scan now */}
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100 dark:border-[#1e3a5f]/50">
+        <button onClick={() => scanMut.mutate()} disabled={!apifyConfigured || running || scanMut.isPending}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50",
+            "bg-orange-500 text-white hover:bg-orange-600"
+          )}>
+          {running
+            ? <><Loader2 size={14} className="animate-spin" /> Scanning…</>
+            : <><Play size={14} /> Run Social Scan</>}
+        </button>
+        {running && (
+          <span className="text-xs text-gray-500 dark:text-[#94a3b8]">
+            {status?.done ?? 0}/{status?.total ?? 0} jobs · {status?.inserted ?? 0} posts found
+          </span>
+        )}
+        {!running && status?.inserted != null && status?.finished_at && (
+          <span className="text-xs text-green-600 dark:text-green-400">Last scan: {status.inserted} posts found</span>
+        )}
+        {status?.error && <span className="text-xs text-red-500">{status.error}</span>}
+      </div>
+      <p className="text-xs text-gray-400 dark:text-[#64748b]">
+        Save your settings first, then run the scan so it uses the latest keywords.
+      </p>
+    </Card>
   );
 }
 

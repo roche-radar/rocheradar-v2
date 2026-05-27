@@ -20,6 +20,7 @@ celery_app = Celery(
         "app.tasks.pdf",
         "app.tasks.scheduler",
         "app.tasks.maintenance",  # reap_stale_runs
+        "app.tasks.social",       # social_scan (Apify)
     ],
 )
 
@@ -31,6 +32,7 @@ import app.tasks.llm             # noqa: E402,F401
 import app.tasks.pdf             # noqa: E402,F401
 import app.tasks.scheduler       # noqa: E402,F401
 import app.tasks.maintenance     # noqa: E402,F401
+import app.tasks.social          # noqa: E402,F401
 
 celery_app.conf.update(
     task_serializer="json",
@@ -54,6 +56,7 @@ celery_app.conf.update(
         "app.tasks.pdf.*": {"queue": "pdf"},
         "app.tasks.scheduler.*": {"queue": "llm"},
         "app.tasks.maintenance.*": {"queue": "llm"},
+        "app.tasks.social.*": {"queue": "scrape"},
     },
     # ── Per-task overrides where the default is wrong ───────────────────
     # Agent rescue can hit 180s timeouts repeatedly; give it more room.
@@ -71,6 +74,10 @@ celery_app.conf.update(
     beat_schedule={
         "check-daily-run": {
             "task": "app.tasks.scheduler.check_daily_run",
+            "schedule": crontab(minute="*"),
+        },
+        "check-social-scan": {
+            "task": "app.tasks.scheduler.check_social_scan",
             "schedule": crontab(minute="*"),
         },
         # Reaper: every 5 min, mark any 'running' RunLog older than 1h as 'error'

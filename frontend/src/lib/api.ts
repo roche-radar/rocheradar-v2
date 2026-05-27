@@ -22,6 +22,7 @@ export interface Target {
   known_urls: string[];
   notes: string | null;
   active: boolean;
+  disease_area: string | null;
 }
 
 export interface RunOut {
@@ -75,6 +76,65 @@ export interface AppSettings {
   agent_budget_per_run: number;
   llm_budget_hard_stop: number;
   available_providers: Record<string, string>;
+  social_keywords: string[];
+  social_platforms: string[];
+  social_window_days: number;
+  social_max_per_query: number;
+  social_scan_enabled: boolean;
+  social_scan_frequency: string;
+  social_scan_hour: number;
+  social_include_kols: boolean;
+  facebook_page_urls: string[];
+  apify_configured: boolean;
+}
+
+export interface SocialPost {
+  id: number;
+  platform: string;
+  post_url: string;
+  author: string | null;
+  text: string;
+  thumbnail_url: string | null;
+  likes: number;
+  comments: number;
+  views: number;
+  shares: number;
+  hashtags: string[];
+  topic: string | null;
+  kind: string;
+  posted_at: string | null;
+  trend_score: number;
+  has_description: boolean;
+}
+
+export interface SocialTopic {
+  topic: string;
+  count: number;
+  engagement: number;
+  score: number;
+  platforms: string[];
+}
+
+export interface SocialTrends {
+  period_days: number;
+  total: number;
+  top_posts: SocialPost[];
+  top_topics: SocialTopic[];
+}
+
+export interface SocialTimeseries {
+  topics: string[];
+  series: Record<string, string | number>[];
+}
+
+export interface SocialScanStatus {
+  running: boolean;
+  error?: string | null;
+  total?: number;
+  done?: number;
+  inserted?: number;
+  started_at?: string;
+  finished_at?: string;
 }
 
 export interface DiscoveryResult {
@@ -118,7 +178,7 @@ export interface TopicsData {
   period_days: number;
   total: number;
   categories: { name: string; count: number }[];
-  top_topics: { topic: string; count: number; url?: string | null }[];
+  top_topics: { topic: string; count: number; trend_score: number; likes: number; views: number; url?: string | null }[];
   sentiment: { name: string; count: number }[];
   top_kols: { name: string; count: number }[];
 }
@@ -126,7 +186,7 @@ export interface TopicsData {
 // ── API calls ─────────────────────────────────────────────
 export const api = {
   stats: () => req<Stats>("/stats"),
-  topics: (days = 7) => req<TopicsData>(`/stats/topics?days=${days}`),
+  topics: (days = 7, diseaseArea?: string) => req<TopicsData>(`/stats/topics?days=${days}${diseaseArea && diseaseArea !== "all" ? `&disease_area=${diseaseArea}` : ""}`),
 
   targets: {
     list: () => req<Target[]>("/targets/"),
@@ -189,5 +249,29 @@ export const api = {
       historical: KolInsight[];
       total: number;
     }>(`/discovery/kol-mentions?q=${encodeURIComponent(q)}`),
+  },
+
+  social: {
+    trends: (days = 180, platform = "all", kind = "all", limit = 60) =>
+      req<SocialTrends>(
+        `/social/trends?days=${days}&platform=${platform}&kind=${kind}&limit=${limit}`
+      ),
+    scan: () => req<{ started: boolean; task_id: string }>("/social/scan", { method: "POST" }),
+    status: () => req<SocialScanStatus>("/social/status"),
+    timeseries: (days = 180, top = 6) =>
+      req<SocialTimeseries>(`/social/timeseries?days=${days}&top=${top}`),
+    describe: (id: number) =>
+      req<{ description: string; so_what: string | null; cached: boolean }>("/social/describe", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      }),
+    discover: (q: string, fresh = true) =>
+      req<{ query: string; results: SocialPost[]; fetching: boolean }>(
+        `/social/discover?q=${encodeURIComponent(q)}&fresh=${fresh}`
+      ),
+    discoverStatus: (q: string) =>
+      req<{ running: boolean; inserted?: number; error?: string }>(
+        `/social/discover/status?q=${encodeURIComponent(q)}`
+      ),
   },
 };

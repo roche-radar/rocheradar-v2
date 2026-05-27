@@ -83,6 +83,7 @@ class ExtractorService:
                     post.source_name = meta["source_name"]
 
                 insights_saved = 0
+                new_insights = []
                 for item in parsed.get("insights", []):
                     ins = ExtractedInsight(
                         scraped_post_id=post.id,
@@ -95,9 +96,27 @@ class ExtractorService:
                         window_tag="primary",
                     )
                     sess.add(ins)
+                    new_insights.append(ins)
                     insights_saved += 1
 
                 await sess.commit()
+
+                # Generate embeddings for new insights (non-blocking)
+                if new_insights:
+                    try:
+                        from app.services.embedder import embed_texts
+                        texts = [
+                            f"{i.topic}: {i.what_they_said or ''}"
+                            for i in new_insights
+                        ]
+                        loop = asyncio.get_event_loop()
+                        embeddings = await loop.run_in_executor(None, embed_texts, texts)
+                        for ins, emb in zip(new_insights, embeddings):
+                            if emb:
+                                ins.embedding = emb
+                        await sess.commit()
+                    except Exception as emb_exc:
+                        logger.warning("extractor.embed_failed", exc=str(emb_exc))
 
         logger.info("extractor.done", post_id=post_id, target=target_name, insights=insights_saved)
         return {"insights_saved": insights_saved}

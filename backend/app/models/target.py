@@ -14,6 +14,7 @@ class Target(Base):
     # JSON-encoded list of known URLs / handles
     known_urls: Mapped[str | None] = mapped_column(Text, default="[]")
     notes: Mapped[str | None] = mapped_column(Text)
+    disease_area: Mapped[str | None] = mapped_column(String(64), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

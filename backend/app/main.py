@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.database import engine, Base
 from app.routers import targets, runs, reports, settings as settings_router, agent
 from app.routers import discovery as discovery_router
+from app.routers import social as social_router
 
 _settings = get_settings()
 
@@ -97,6 +98,51 @@ async def _seed_defaults() -> None:
             sess.add(AppSettings(id=1, llm_provider=provider, llm_model=model))
             await sess.commit()
             logger.info("seeded_app_settings", provider=provider)
+            s = await sess.get(AppSettings, 1)
+
+        # Seed default Facebook page URLs if none set yet.
+        # Uses apify/facebook-posts-scraper with known pharma/oncology/medical pages
+        # (keyword search doesn't work on FB without auth; page-URL scraping does).
+        if s and not s.facebook_page_urls:
+            default_fb_pages = [
+                # Major pharma companies
+                "https://www.facebook.com/roche",
+                "https://www.facebook.com/Novartis",
+                "https://www.facebook.com/pfizer",
+                "https://www.facebook.com/AstraZenecaGlobal",
+                "https://www.facebook.com/BristolMyersSquibb",
+                "https://www.facebook.com/merck",
+                "https://www.facebook.com/abbvie",
+                "https://www.facebook.com/Genentech",
+                # Cancer / oncology orgs
+                "https://www.facebook.com/AmericanCancerSociety",
+                "https://www.facebook.com/CancerResearchUK",
+                "https://www.facebook.com/LUNGevity",
+                "https://www.facebook.com/LLS",
+                # MS / neurology
+                "https://www.facebook.com/nationalMSsociety",
+                # General health / regulatory
+                "https://www.facebook.com/NIH.gov",
+                "https://www.facebook.com/WHO",
+            ]
+            s.facebook_page_urls = json.dumps(default_fb_pages)
+            await sess.commit()
+            logger.info("seeded_facebook_page_urls", count=len(default_fb_pages))
+
+        # Seed a starter social-scan keyword list if none set yet
+        if s and not s.social_keywords:
+            default_keywords = [
+                # Roche / Genentech drugs
+                "Tecentriq", "Ocrevus", "Hemlibra", "Kadcyla", "Perjeta",
+                "Avastin", "Herceptin", "Polivy", "Lunsumio", "Roche",
+                # Medical field / disease areas / treatments
+                "oncology", "lungcancer", "NSCLC", "breastcancer", "immunotherapy",
+                "multiplesclerosis", "hemophilia", "clinicaltrial", "biomarker",
+                "cancertreatment",
+            ]
+            s.social_keywords = json.dumps(default_keywords)
+            await sess.commit()
+            logger.info("seeded_social_keywords", count=len(default_keywords))
 
         # Seed targets if file exists and table is empty
         targets_file = Path(__file__).parent / "targets.json"
@@ -138,6 +184,7 @@ app.include_router(reports.router)
 app.include_router(settings_router.router)
 app.include_router(agent.router)
 app.include_router(discovery_router.router)
+app.include_router(social_router.router)
 
 
 @app.get("/health")
@@ -146,30 +193,37 @@ async def health():
 
 
 @app.get("/api/stats/topics")
-async def stats_topics(days: int = 7):
+async def stats_topics(days: int = 7, disease_area: str | None = None):
     """Return top discussed topics and categories for the dashboard graphs."""
+    import math
     from app.database import AsyncSessionLocal
     from app.models import ExtractedInsight, Target, ScrapedPost
-    from sqlalchemy import select, func, desc
+    from sqlalchemy import select, desc
     from datetime import datetime, timezone, timedelta
     from collections import Counter
 
     since = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
 
     async with AsyncSessionLocal() as sess:
-        rows = await sess.execute(
+        q = (
             select(ExtractedInsight, Target, ScrapedPost)
             .join(Target, ExtractedInsight.target_id == Target.id)
             .join(ScrapedPost, ExtractedInsight.scraped_post_id == ScrapedPost.id)
             .where(ExtractedInsight.extracted_at >= since)
             .order_by(desc(ExtractedInsight.extracted_at))
         )
+        if disease_area and disease_area != "all":
+            q = q.where(Target.disease_area == disease_area)
+        rows = await sess.execute(q)
         insights = rows.all()
 
-    # Category breakdown
     cat_counts: Counter = Counter()
     topic_counts: Counter = Counter()
-    topic_urls: dict = {}  # first URL seen per topic
+    topic_trend: dict[str, float] = {}
+    topic_likes: dict[str, int] = {}
+    topic_views: dict[str, int] = {}
+    topic_urls: dict[str, str] = {}
     sentiment_counts: Counter = Counter({"positive": 0, "neutral": 0, "negative": 0})
     kol_counts: Counter = Counter()
 
@@ -178,10 +232,26 @@ async def stats_topics(days: int = 7):
         cat_counts[cat] += 1
         if ins.topic:
             topic_counts[ins.topic] += 1
+            # Recency-weighted trend score (5-day half-life)
+            age_days = (now - ins.extracted_at).total_seconds() / 86400
+            decay = math.exp(-age_days / 5)
+            topic_trend[ins.topic] = topic_trend.get(ins.topic, 0.0) + decay
+            topic_likes[ins.topic] = topic_likes.get(ins.topic, 0) + (post.likes or 0)
+            topic_views[ins.topic] = topic_views.get(ins.topic, 0) + (post.views or 0)
             if ins.topic not in topic_urls and post.source_url:
                 topic_urls[ins.topic] = post.source_url
         sentiment_counts[(ins.sentiment or "neutral").lower()] += 1
         kol_counts[target.name] += 1
+
+    # Combine trend + engagement into final score
+    def _score(topic: str) -> float:
+        return (
+            topic_trend.get(topic, 0.0)
+            + topic_likes.get(topic, 0) * 0.001
+            + topic_views.get(topic, 0) * 0.0001
+        )
+
+    sorted_topics = sorted(topic_counts.keys(), key=_score, reverse=True)[:10]
 
     return {
         "period_days": days,
@@ -191,8 +261,15 @@ async def stats_topics(days: int = 7):
             for k, v in cat_counts.most_common(8)
         ],
         "top_topics": [
-            {"topic": k, "count": v, "url": topic_urls.get(k)}
-            for k, v in topic_counts.most_common(10)
+            {
+                "topic": t,
+                "count": topic_counts[t],
+                "trend_score": round(_score(t), 3),
+                "likes": topic_likes.get(t, 0),
+                "views": topic_views.get(t, 0),
+                "url": topic_urls.get(t),
+            }
+            for t in sorted_topics
         ],
         "sentiment": [
             {"name": k.capitalize(), "count": v}

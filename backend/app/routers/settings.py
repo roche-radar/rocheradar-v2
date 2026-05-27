@@ -47,6 +47,17 @@ class SettingsOut(BaseModel):
     agent_budget_per_run: int
     llm_budget_hard_stop: int
     available_providers: dict[str, str]
+    # Social trend scan (Apify)
+    social_keywords: list[str]
+    social_platforms: list[str]
+    social_window_days: int
+    social_max_per_query: int
+    social_scan_enabled: bool
+    social_scan_frequency: str
+    social_scan_hour: int
+    social_include_kols: bool
+    facebook_page_urls: list[str]
+    apify_configured: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -62,6 +73,15 @@ class SettingsUpdate(BaseModel):
     cron_day_of_week: int | None = None
     agent_budget_per_run: int | None = None
     llm_budget_hard_stop: int | None = None
+    social_keywords: list[str] | None = None
+    social_platforms: list[str] | None = None
+    social_window_days: int | None = None
+    social_max_per_query: int | None = None
+    social_scan_enabled: bool | None = None
+    social_scan_frequency: str | None = None
+    social_scan_hour: int | None = None
+    social_include_kols: bool | None = None
+    facebook_page_urls: list[str] | None = None
 
 
 class TestConnectionRequest(BaseModel):
@@ -70,6 +90,18 @@ class TestConnectionRequest(BaseModel):
 
 
 def _to_out(s: AppSettings) -> SettingsOut:
+    import json
+    from app.config import get_settings as _gs
+
+    def _jlist(raw: str | None, default: list) -> list:
+        if not raw:
+            return default
+        try:
+            v = json.loads(raw)
+            return v if isinstance(v, list) else default
+        except Exception:
+            return default
+
     return SettingsOut(
         llm_provider=s.llm_provider,
         llm_model=s.llm_model,
@@ -84,6 +116,16 @@ def _to_out(s: AppSettings) -> SettingsOut:
         agent_budget_per_run=s.agent_budget_per_run,
         llm_budget_hard_stop=s.llm_budget_hard_stop,
         available_providers=PROVIDERS,
+        social_keywords=_jlist(s.social_keywords, []),
+        social_platforms=_jlist(s.social_platforms, ["instagram", "twitter", "tiktok", "facebook"]),
+        social_window_days=s.social_window_days if s.social_window_days is not None else 180,
+        social_max_per_query=s.social_max_per_query if s.social_max_per_query is not None else 30,
+        social_scan_enabled=bool(s.social_scan_enabled),
+        social_scan_frequency=s.social_scan_frequency or "weekly",
+        social_scan_hour=s.social_scan_hour if s.social_scan_hour is not None else 6,
+        social_include_kols=bool(s.social_include_kols),
+        facebook_page_urls=_jlist(s.facebook_page_urls, []),
+        apify_configured=bool(_gs().apify_api_token),
     )
 
 
@@ -100,7 +142,12 @@ async def update_settings(body: SettingsUpdate, db: AsyncSession = Depends(get_d
     s = await _get_or_create(db)
     if body.llm_provider is not None and body.llm_provider not in PROVIDERS:
         raise HTTPException(status_code=422, detail=f"Unknown provider: {body.llm_provider}")
+    import json
     data = body.model_dump(exclude_none=True)
+    # social_keywords / social_platforms are stored as JSON strings
+    for jfield in ("social_keywords", "social_platforms", "facebook_page_urls"):
+        if jfield in data:
+            data[jfield] = json.dumps(data[jfield])
     for field, value in data.items():
         setattr(s, field, value)
 

@@ -72,3 +72,46 @@ async def _check() -> None:
                            status=r.status_code, body=(r.text or "")[:200])
     except Exception as exc:
         logger.warning("scheduler.trigger_failed", exc=str(exc))
+
+
+@celery_app.task(name="app.tasks.scheduler.check_social_scan", queue="llm")
+def check_social_scan() -> None:
+    """Fires every minute. Triggers the social trend scan when enabled and the
+    configured time matches. Daily → every day at the hour; weekly → Mondays."""
+    asyncio.run(_check_social())
+
+
+async def _check_social() -> None:
+    import json
+    from app.database import CelerySessionLocal
+    from app.models import AppSettings
+
+    async with CelerySessionLocal() as sess:
+        s = await sess.get(AppSettings, 1)
+        if not s or not getattr(s, "social_scan_enabled", False):
+            return
+
+        now = datetime.now(_CRON_TZ)
+        # Fire at the top of the configured hour
+        if now.hour != getattr(s, "social_scan_hour", 6) or now.minute != 0:
+            return
+        # Weekly mode runs on Mondays (no dedicated day-of-week field for social)
+        frequency = getattr(s, "social_scan_frequency", "weekly") or "weekly"
+        if frequency == "weekly" and now.weekday() != 0:
+            return
+
+    # Skip if a scan is already running
+    try:
+        import redis as _redis
+        from app.tasks.social import _STATUS_KEY
+        r = _redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
+        cur = r.get(_STATUS_KEY)
+        if cur and json.loads(cur).get("running"):
+            logger.info("scheduler.social_skip_already_running")
+            return
+    except Exception:
+        pass
+
+    logger.info("scheduler.social_triggering", frequency=frequency)
+    from app.tasks.social import social_scan
+    social_scan.delay()
