@@ -248,7 +248,7 @@ def _rate_limit_wait(key: str) -> None:
 
 # ── Low-level TinyFish calls ──────────────────────────────
 
-def _run_tf(args: list[str], timeout: int = 90, pipeline_mode: bool = True) -> tuple[dict, str]:
+def _run_tf(args: list[str], timeout: int = 120, pipeline_mode: bool = True) -> tuple[dict, str]:
     """Run tinyfish CLI, return (parsed_json, key_used)."""
     env, key = _tf_env(pipeline_mode=pipeline_mode)
     _rate_limit_wait(key)           # ← blocks here if rate limited
@@ -297,7 +297,7 @@ def _tf_search_discovery(query: str) -> list[dict]:
     import subprocess as _sp, json as _json
     try:
         r = _sp.run(["tinyfish", "search", "query", query],
-                    capture_output=True, text=True, timeout=60, env=env)
+                    capture_output=True, text=True, timeout=120, env=env)
         out = r.stdout.strip()
         data = _json.loads(out) if out else {}
         return data.get("results", [])
@@ -315,7 +315,7 @@ def _tf_fetch_discovery(url: str) -> str:
     import subprocess as _sp, json as _json
     try:
         r = _sp.run(["tinyfish", "fetch", "content", "get", url],
-                    capture_output=True, text=True, timeout=60, env=env)
+                    capture_output=True, text=True, timeout=120, env=env)
         out = r.stdout.strip()
         data = _json.loads(out) if out else {}
         results = data.get("results", [])
