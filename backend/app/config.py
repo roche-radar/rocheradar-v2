@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Sentry
     sentry_dsn: str = ""
 
+    # Embeddings
+    voyage_api_key: str = ""
+
     # Vercel Blob storage
     vercel_blob_token: str = ""
 

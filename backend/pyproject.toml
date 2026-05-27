@@ -35,6 +35,9 @@ dependencies = [
     # Storage
     "vercel_blob>=0.4.1",
 
+    # Embeddings
+    "voyageai>=0.3.0",
+
     # Utils
     "pydantic-settings>=2.7.0",
     "structlog>=24.4.0",

@@ -1,10 +1,15 @@
 """Discovery — real-time TinyFish search + DB cache."""
+import asyncio
 import hashlib
 import re
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Max concurrent TinyFish subprocess calls across all discovery endpoints.
+# Each spawns a headless browser (~400MB). 8 = ~3.2GB peak on backend service.
+_DISCOVERY_SEM = asyncio.Semaphore(8)
 
 from app.database import get_db
 from app.models.discovery_result import DiscoveryResult
@@ -329,13 +334,16 @@ async def search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
     results: list[dict] = []
     seen_urls: set = set()
     queries = _variant_queries(query)
+    loop = asyncio.get_event_loop()
 
     # Run primary query first, then variants until we hit MAX_RESULTS
     for vq in queries:
         if len(results) >= MAX_RESULTS:
             break
         needed = MAX_RESULTS - len(results)
-        hits = _tf_search_discovery(vq)[:needed + 5]
+        async with _DISCOVERY_SEM:
+            hits = await loop.run_in_executor(None, _tf_search_discovery, vq)
+        hits = hits[:needed + 5]
         for hit in hits:
             if len(results) >= MAX_RESULTS:
                 break
@@ -435,11 +443,14 @@ async def deep_search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
     all_results: list[dict] = []
     seen_urls: set = set()
     deep_key = f"__deep__{query}"  # separate cache key for deep results
+    loop = asyncio.get_event_loop()
 
     for vq in _deep_queries(query):
         if len(all_results) >= DEEP_MAX_RESULTS:
             break
-        hits = _tf_search_discovery(vq)[:12]
+        async with _DISCOVERY_SEM:
+            hits = await loop.run_in_executor(None, _tf_search_discovery, vq)
+        hits = hits[:12]
         for hit in hits:
             if len(all_results) >= DEEP_MAX_RESULTS:
                 break
