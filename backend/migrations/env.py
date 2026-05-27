@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -10,6 +11,17 @@ from alembic import context
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Override alembic.ini's hardcoded sqlalchemy.url with DATABASE_URL env var
+# (CI uses rocheradar_test, prod/staging Railway uses their own URLs).
+# Normalises postgres:// → postgresql+asyncpg:// the way the app does.
+_env_url = os.getenv("DATABASE_URL", "").strip()
+if _env_url:
+    if _env_url.startswith("postgres://") and "+asyncpg" not in _env_url:
+        _env_url = _env_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif _env_url.startswith("postgresql://") and "+asyncpg" not in _env_url:
+        _env_url = _env_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    config.set_main_option("sqlalchemy.url", _env_url)
 
 from app.database import Base  # noqa: E402
 from app.config import get_settings  # noqa: E402
