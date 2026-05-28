@@ -51,12 +51,12 @@ const MIN_LIKES_OPTIONS = [
 
 // Defaults — used for "reset" detection and actual reset
 const LANGUAGE_OPTIONS = [
-  { value: "all", label: "All languages" },
-  { value: "en",  label: "English" },
-  { value: "fr",  label: "French" },
+  { value: "fr",  label: "France only" },
+  { value: "en",  label: "English only" },
+  { value: "all", label: "Global (all)" },
 ];
 
-const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0, language: "all", fromDate: "", toDate: "" };
+const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0, language: "fr", fromDate: "", toDate: "" };
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -148,12 +148,12 @@ export default function SocialTrends() {
 
   // Manual search
   const { data: searchData } = useQuery({
-    queryKey: ["social-search", submitted, polls],
-    queryFn: () => api.social.discover(submitted, false),
+    queryKey: ["social-search", submitted, polls, language],
+    queryFn: () => api.social.discover(submitted, false, language),
     enabled: submitted.length > 1,
   });
   const searchMut = useMutation({
-    mutationFn: () => api.social.discover(submitted, true),
+    mutationFn: () => api.social.discover(submitted, true, language),
     onSuccess: () => {
       setPolls(0);
       setSearching(true);

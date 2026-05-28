@@ -238,6 +238,7 @@ def _to_out(r: DiscoveryResult, from_cache: bool) -> dict:
 class SearchRequest(BaseModel):
     query: str
     force_refresh: bool = False
+    lang: str | None = None   # "fr" | "en" | "all" — None = use default (France)
 
 
 class FetchRequest(BaseModel):
@@ -245,22 +246,35 @@ class FetchRequest(BaseModel):
     url: str
 
 
-def _variant_queries(query: str) -> list[str]:
+def _localize(q: str, lang: str | None) -> str:
+    """Append geographic/language hints to a search query."""
+    if not lang or lang == "all":
+        return q
+    if lang == "fr":
+        # French TLD restriction + French-language keyword bias
+        return f"{q} (site:.fr OR France OR français)"
+    if lang == "en":
+        return f"{q} -site:.fr -site:.de -site:.it -site:.es"
+    return q
+
+
+def _variant_queries(query: str, lang: str | None = "fr") -> list[str]:
     """Standard search variants — 5 queries for regular search."""
     q = query.strip()
-    return [
+    base = [
         q,
         f"{q} site:linkedin.com",
         f"{q} site:twitter.com OR site:x.com",
         f"{q} 2025 2024 news",
         f"{q} clinical trial research study",
     ]
+    return [_localize(v, lang) for v in base]
 
 
-def _deep_queries(query: str) -> list[str]:
+def _deep_queries(query: str, lang: str | None = "fr") -> list[str]:
     """Comprehensive query list for deep search — covers all platforms and angles."""
     q = query.strip()
-    return [
+    base = [
         q,
         f"{q} 2025",
         f"{q} 2024",
@@ -277,6 +291,7 @@ def _deep_queries(query: str) -> list[str]:
         f"{q} latest update",
         f"{q} discussion forum",
     ]
+    return [_localize(v, lang) for v in base]
 
 
 async def _save_hit(db, query: str, hit: dict, seen_urls: set) -> dict | None:
@@ -347,7 +362,7 @@ async def search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
 
     results: list[dict] = []
     seen_urls: set = set()
-    queries = _variant_queries(query)
+    queries = _variant_queries(query, body.lang or "fr")
     loop = asyncio.get_event_loop()
 
     # Run primary query first, then variants until we hit MAX_RESULTS
@@ -459,7 +474,7 @@ async def deep_search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
     deep_key = f"__deep__{query}"  # separate cache key for deep results
     loop = asyncio.get_event_loop()
 
-    for vq in _deep_queries(query):
+    for vq in _deep_queries(query, body.lang or "fr"):
         if len(all_results) >= DEEP_MAX_RESULTS:
             break
         async with _DISCOVERY_SEM:

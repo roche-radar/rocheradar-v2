@@ -334,13 +334,14 @@ def _set_discover_status(query: str, **fields) -> None:
     soft_time_limit=600,
     time_limit=720,
 )
-def discover_fetch(self, query: str) -> dict:
-    """Ad-hoc bounded Apify fetch for a single Discovery query across platforms."""
+def discover_fetch(self, query: str, lang_override: str | None = None) -> dict:
+    """Ad-hoc bounded Apify fetch for a single Discovery query across platforms.
+    lang_override: if set ('fr'|'en'|'all'), overrides AppSettings.social_lang_filter."""
     import asyncio
-    return asyncio.run(_run_discover(query))
+    return asyncio.run(_run_discover(query, lang_override))
 
 
-async def _run_discover(query: str) -> dict:
+async def _run_discover(query: str, lang_override: str | None = None) -> dict:
     from app.database import CelerySessionLocal
     from app.models import AppSettings, SocialPost
     from app.services import apify_client
@@ -357,7 +358,7 @@ async def _run_discover(query: str) -> dict:
             ["instagram", "twitter", "linkedin", "facebook"]
         window = s.social_window_days if s else 180
         fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
-        lang_filter = getattr(s, "social_lang_filter", "fr") or "fr"
+        lang_filter = lang_override or getattr(s, "social_lang_filter", "fr") or "fr"
 
     loop = asyncio.get_running_loop()
 
@@ -395,6 +396,11 @@ async def _run_discover(query: str) -> dict:
         for post in posts:
             # Tag with primary keyword as topic for display in trend chips
             post["topic"] = keywords[0] if keywords else query
+            # Language filter — skip non-matching posts when not in "all" mode
+            if lang_filter and lang_filter != "all":
+                post_lang = _detect_lang(post.get("text", ""))
+                if post_lang != lang_filter:
+                    continue
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"], post_url=post["post_url"],

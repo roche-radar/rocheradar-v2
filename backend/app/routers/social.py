@@ -218,24 +218,25 @@ async def timeseries(days: int = 180, top: int = 6, db: AsyncSession = Depends(g
 # ── Discovery: cached matches + background fresh Apify fetch ──
 
 @router.get("/discover")
-async def discover(q: str, fresh: bool = True, db: AsyncSession = Depends(get_db)):
-    """Return social posts matching a query, ranked. Serves already-scraped
-    matches instantly and (if `fresh`) kicks off a background Apify pull for
-    the query — new results land in social_posts and show on the next fetch."""
+async def discover(q: str, fresh: bool = True, lang: str | None = None, db: AsyncSession = Depends(get_db)):
+    """Return social posts matching a query, ranked. `lang` overrides the
+    configured default (fr/en/all). If user picks "Global" in the UI, lang="all"."""
     term = (q or "").strip()
     if len(term) < 2:
         return {"query": term, "results": [], "fetching": False}
 
     now = datetime.now(timezone.utc)
     like = f"%{term.lower()}%"
-    rows = await db.execute(
-        select(SocialPost).where(or_(
-            func.lower(SocialPost.text).like(like),
-            func.lower(SocialPost.topic).like(like),
-            func.lower(SocialPost.query).like(like),
-            func.lower(SocialPost.hashtags).like(like),
-        )).order_by(desc(SocialPost.scraped_at)).limit(500)
-    )
+    base = select(SocialPost).where(or_(
+        func.lower(SocialPost.text).like(like),
+        func.lower(SocialPost.topic).like(like),
+        func.lower(SocialPost.query).like(like),
+        func.lower(SocialPost.hashtags).like(like),
+    ))
+    # Filter cached posts by language when not in "all" mode
+    if lang and lang != "all":
+        base = base.where(SocialPost.language == lang)
+    rows = await db.execute(base.order_by(desc(SocialPost.scraped_at)).limit(500))
     posts = rows.scalars().all()
     ranked = sorted(posts, key=lambda p: _trend_score(p, now), reverse=True)
     results = [_to_out(p, now) for p in ranked[:60]]
@@ -244,7 +245,8 @@ async def discover(q: str, fresh: bool = True, db: AsyncSession = Depends(get_db
     from app.services import apify_client
     if fresh and apify_client.is_configured():
         from app.tasks.social import discover_fetch
-        discover_fetch.delay(term)
+        # Pass lang override to the fetch task (None means use settings default)
+        discover_fetch.delay(term, lang)
         fetching = True
 
     return {"query": term, "results": results, "fetching": fetching}

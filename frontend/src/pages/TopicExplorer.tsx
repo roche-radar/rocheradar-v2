@@ -70,15 +70,15 @@ export default function TopicExplorer() {
   const [active, setActive]           = useState<DiscoveryResult | null>(null);
   const [describeResult, setDescribe] = useState<DiscoveryResult | null>(null);
   const [deepOpen, setDeepOpen]       = useState(false);
-  const [langFilter, setLangFilter]   = useState("all");
+  const [langFilter, setLangFilter]   = useState("fr");
   const [fromDate, setFromDate]       = useState("");
   const [toDate, setToDate]           = useState("");
 
   const { data: history } = useQuery({ queryKey: ["disc-hist"], queryFn: api.discovery.history });
 
   const searchMut = useMutation({
-    mutationFn: ({ q, refresh }: { q: string; refresh: boolean }) =>
-      api.discovery.search(q, refresh),
+    mutationFn: ({ q, refresh, lang }: { q: string; refresh: boolean; lang: string }) =>
+      api.discovery.search(q, refresh, lang),
   });
 
   const { data: kolData, isLoading: kolLoading } = useQuery({
@@ -124,7 +124,7 @@ export default function TopicExplorer() {
     const term = (q ?? query).trim();
     if (!term) return;
     setSubmitted(term); setQuery(term); setFilter("all");
-    searchMut.mutate({ q: term, refresh });
+    searchMut.mutate({ q: term, refresh, lang: langFilter });
   }
 
   const webRaw      = searchMut.data?.results ?? [];
@@ -253,8 +253,8 @@ export default function TopicExplorer() {
                 ))}
                 <div className="my-2 h-px bg-gray-100 dark:bg-[#1e3a5f]/40" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-gray-300 dark:text-[#334155] px-2 pt-1 pb-1">Language</p>
-                {[{v:"all",l:"All"},{v:"en",l:"English"},{v:"fr",l:"French"}].map(o => (
-                  <button key={o.v} onClick={() => setLangFilter(o.v)}
+                {[{v:"fr",l:"France only"},{v:"en",l:"English only"},{v:"all",l:"Global (all)"}].map(o => (
+                  <button key={o.v} onClick={() => { setLangFilter(o.v); if (submitted) searchMut.mutate({ q: submitted, refresh: true, lang: o.v }); }}
                     className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
                       langFilter === o.v ? "bg-roche-blue text-white" : "text-gray-500 dark:text-[#64748b] hover:bg-gray-50 dark:hover:bg-[#111827] hover:text-gray-800 dark:hover:text-[#94a3b8]")}>
                     {o.l}

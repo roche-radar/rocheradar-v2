@@ -289,10 +289,10 @@ export const api = {
   },
 
   discovery: {
-    search: (query: string, forceRefresh = false) =>
+    search: (query: string, forceRefresh = false, lang: string = "fr") =>
       req<{ results: DiscoveryResult[]; from_cache: boolean; count: number }>(
         "/discovery/search",
-        { method: "POST", body: JSON.stringify({ query, force_refresh: forceRefresh }) }
+        { method: "POST", body: JSON.stringify({ query, force_refresh: forceRefresh, lang }) }
       ),
     fetchContent: (result_id: number, url: string) =>
       req<DiscoveryContent>(
@@ -300,9 +300,9 @@ export const api = {
         { method: "POST", body: JSON.stringify({ result_id, url }) }
       ),
     history: () => req<{ queries: { query: string; scraped_at: string }[] }>("/discovery/history"),
-    deepSearch: (q: string) => req<{ results: DiscoveryResult[]; count: number }>(
+    deepSearch: (q: string, lang: string = "fr") => req<{ results: DiscoveryResult[]; count: number }>(
       "/discovery/deep-search",
-      { method: "POST", body: JSON.stringify({ query: q, force_refresh: false }) }
+      { method: "POST", body: JSON.stringify({ query: q, force_refresh: false, lang }) }
     ),
     describe: (result_id: number) =>
       req<{ description: string; so_what: string | null; cached: boolean }>(
@@ -330,9 +330,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ id }),
       }),
-    discover: (q: string, fresh = true) =>
+    discover: (q: string, fresh = true, lang: string = "fr") =>
       req<{ query: string; results: SocialPost[]; fetching: boolean }>(
-        `/social/discover?q=${encodeURIComponent(q)}&fresh=${fresh}`
+        `/social/discover?q=${encodeURIComponent(q)}&fresh=${fresh}&lang=${lang}`
       ),
     discoverStatus: (q: string) =>
       req<{ running: boolean; inserted?: number; error?: string; terms?: string[] }>(
