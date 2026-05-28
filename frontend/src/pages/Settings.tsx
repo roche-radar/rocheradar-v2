@@ -364,7 +364,7 @@ function SocialScanCard({ form, set, apifyConfigured }: {
     refetchInterval: (q) => (q.state.data?.running ? 3000 : 30000),
   });
   const scanMut = useMutation({
-    mutationFn: api.social.scan,
+    mutationFn: () => api.social.scan(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["social-status"] }),
   });
   const clearSocialMut = useMutation({
