@@ -22,8 +22,14 @@ export default function Reports() {
   const genPdfsMut = useMutation({
     mutationFn: api.runs.generatePdfs,
     onSuccess: () => {
-      setGenMsg("PDF generation started — refresh in a moment to see new files.");
-      setTimeout(() => { qc.invalidateQueries({ queryKey: ["pdfs"] }); setGenMsg(null); }, 8000);
+      setGenMsg("PDF generation started — new files will appear as they finish (this can take a minute).");
+      // Poll the list several times since generating all target PDFs takes longer than one refresh.
+      [5000, 12000, 20000, 30000, 45000].forEach(d =>
+        setTimeout(() => qc.invalidateQueries({ queryKey: ["pdfs"] }), d));
+      setTimeout(() => setGenMsg(null), 45000);
+    },
+    onError: (e) => {
+      setGenMsg(`PDF generation failed: ${e instanceof Error ? e.message : "unknown error"}`);
     },
   });
 
@@ -68,7 +74,9 @@ export default function Reports() {
       </div>
 
       {genMsg && (
-        <div className="text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2">
+        <div className={genPdfsMut.isError
+          ? "text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-2"
+          : "text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2"}>
           {genMsg}
         </div>
       )}

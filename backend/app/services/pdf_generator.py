@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import html as _html
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +15,9 @@ from app.services.run_context import RunContext
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
+
+# Weekly run cadence — the daily summary's "findings this week" section covers this many days
+SUMMARY_WINDOW_DAYS = 7
 
 # Lower rank = higher priority in PDFs
 _CATEGORY_RANK = {
@@ -485,12 +488,16 @@ class PDFService:
         from app.models import PersonSummary, Target, ExtractedInsight, ScrapedPost
         from sqlalchemy import select
 
+        # Weekly cadence — findings section covers the last 7 days (run once a week)
+        window_cutoff = datetime.now(timezone.utc) - timedelta(days=SUMMARY_WINDOW_DAYS)
+
         async with CelerySessionLocal() as sess:
-            # All insights extracted during this run
+            # Insights from the last 7 days (this week's findings)
             ins_rows = await sess.execute(
                 select(ExtractedInsight, ScrapedPost, Target)
                 .join(ScrapedPost, ExtractedInsight.scraped_post_id == ScrapedPost.id)
                 .join(Target, ExtractedInsight.target_id == Target.id)
+                .where(ExtractedInsight.extracted_at >= window_cutoff)
                 .order_by(Target.name, ExtractedInsight.extracted_at)
             )
             all_insights = ins_rows.all()
@@ -525,6 +532,7 @@ class PDFService:
         # Build per-target blocks
         categories_seen: set[str] = set()
         person_blocks = ""
+        empty_kols: list[str] = []
         for tgt in all_targets:
             items = sorted(by_target.get(tgt.id, []), key=lambda r: _insight_rank(r[0]))
             ps = summaries.get(tgt.id)
@@ -550,7 +558,9 @@ class PDFService:
                 )
 
             if not cards and not recap_block:
-                continue  # skip targets with no insights and no summary yet
+                # No insights and no summary — list the name at the end instead of dropping it
+                empty_kols.append(tgt.name)
+                continue
 
             notes = _html.escape(tgt.notes or "KOL")
             count = len(items)
@@ -566,11 +576,23 @@ class PDFService:
                 f'</div>'
                 f'{recap_block}'
                 f'{kol_analytics}'
-                f'{cards or "<div class=\'empty-card\'>No new findings this run — summary above from prior runs.</div>"}'
+                f'{cards or "<div class=\'empty-card\'>No new findings this week — summary above from prior runs.</div>"}'
                 f'</div>'
             )
 
-        if not person_blocks:
+        # KOLs with no findings/summary — listed by name at the very end
+        empty_block = ""
+        if empty_kols:
+            names_html = "".join(f'<li>{_html.escape(n)}</li>' for n in sorted(empty_kols))
+            empty_block = (
+                f'<div class="empty-kols">'
+                f'<h2>No data this week</h2>'
+                f'<div class="lab">{len(empty_kols)} KOL(s) with no new findings or summary this week</div>'
+                f'<ul>{names_html}</ul>'
+                f'</div>'
+            )
+
+        if not person_blocks and not empty_block:
             person_blocks = '<div class="no-findings">No insights or summaries found for this run.</div>'
 
         kol_count = len([t for t in all_targets if by_target.get(t.id) or summaries.get(t.id)])
@@ -587,6 +609,11 @@ class PDFService:
 {_DAILY_EXTRA_CSS}
 /* Analytics section inside daily PDF */
 .analytics-section {{ page-break-inside: avoid; margin-bottom: 20px; }}
+.empty-kols {{ margin-top: 28px; padding-top: 16px; border-top: 1px solid #d1d9e6; page-break-inside: avoid; }}
+.empty-kols h2 {{ font-size: 15px; color: #64748b; margin: 0 0 4px; }}
+.empty-kols .lab {{ font-size: 11px; color: #94a3b8; margin-bottom: 8px; }}
+.empty-kols ul {{ columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; }}
+.empty-kols li {{ font-size: 12px; color: #475569; margin-bottom: 3px; break-inside: avoid; }}
 </style>
 </head><body>
 <div class="header">
@@ -603,6 +630,7 @@ class PDFService:
 {cross_analytics}
 
 {person_blocks}
+{empty_block}
 <div class="footer">RocheRadar Summary &nbsp;·&nbsp; {today} &nbsp;·&nbsp; Confidential</div>
 </body></html>"""
 
