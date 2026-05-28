@@ -535,8 +535,6 @@ async def _save_post_and_extract(
             await sess.rollback()
             return False, None
 
-    from app.tasks.llm import extract_insights
-    extract_insights.delay(post.id, run_id)
     return True, post.id
 
 

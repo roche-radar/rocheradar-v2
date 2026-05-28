@@ -130,7 +130,7 @@ def wave2_rescue(self, run_id: int) -> dict:
     from app.services.scraper import ScrapeService
     from app.services.run_context import RunContext
     from app.tasks.utils import patch_run
-    from app.tasks.llm import generate_summary
+    from app.tasks.llm import generate_summary, extract_target_posts
     from app.tasks.pdf import generate_target_pdf
 
     total_rescued = 0
@@ -158,6 +158,7 @@ def wave2_rescue(self, run_id: int) -> dict:
             from celery import chain as _chain
             from celery.exceptions import TimeoutError as CeleryTimeout
             result = _chain(
+                extract_target_posts.si(target_id, run_id),
                 generate_summary.si(target_id, run_id),
                 generate_target_pdf.si(target_id, run_id),
             ).apply_async()

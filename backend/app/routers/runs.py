@@ -55,7 +55,7 @@ def _run_to_out(r: RunLog) -> RunOut:
 async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     from celery import chain, chord, group
     from app.tasks.scrape import scrape_target, wave2_rescue
-    from app.tasks.llm import generate_summary
+    from app.tasks.llm import generate_summary, extract_target_posts
     from app.tasks.pdf import generate_target_pdf, generate_daily_summary_pdf
 
     # Reject if a run is already in progress
@@ -106,6 +106,7 @@ async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     for t in targets:
         per_target = chain(
             scrape_target.si(t.id, run.id, idempotency_key),
+            extract_target_posts.si(t.id, run.id),
             generate_summary.si(t.id, run.id),
             generate_target_pdf.si(t.id, run.id),
         )
