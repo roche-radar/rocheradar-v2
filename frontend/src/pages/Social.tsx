@@ -2,10 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Flame, Play, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store";
 import SocialTrends from "./SocialTrends";
 
 export default function SocialPage() {
   const qc = useQueryClient();
+  const { socialLang } = useAppStore();
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
   const { data: status } = useQuery({
     queryKey: ["social-status"],
@@ -13,7 +15,7 @@ export default function SocialPage() {
     refetchInterval: (q) => (q.state.data?.running ? 3000 : 30000),
   });
   const scanMut = useMutation({
-    mutationFn: api.social.scan,
+    mutationFn: () => api.social.scan(socialLang),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["social-status"] }),
   });
 

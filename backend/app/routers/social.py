@@ -61,13 +61,13 @@ def _to_out(p: SocialPost, now: datetime) -> dict:
 # ── Scan trigger + status ─────────────────────────────────
 
 @router.post("/scan")
-async def trigger_scan():
-    """Kick off a manual social trend scan via Apify."""
+async def trigger_scan(lang: str | None = None):
+    """Kick off a manual social trend scan via Apify.
+    `lang` overrides settings.social_lang_filter for this scan only."""
     from app.services import apify_client
     if not apify_client.is_configured():
         raise HTTPException(status_code=400, detail="APIFY_API_TOKEN not configured")
 
-    # Don't stack scans
     try:
         import redis as _redis
         from app.config import get_settings
@@ -81,8 +81,8 @@ async def trigger_scan():
         pass
 
     from app.tasks.social import social_scan
-    task = social_scan.delay()
-    return {"started": True, "task_id": task.id}
+    task = social_scan.delay(lang)
+    return {"started": True, "task_id": task.id, "lang": lang}
 
 
 @router.delete("/posts")

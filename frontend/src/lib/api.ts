@@ -321,7 +321,8 @@ export const api = {
       req<SocialTrends>(
         `/social/trends?days=${days}&platform=${platform}&kind=${kind}&limit=${limit}`
       ),
-    scan: () => req<{ started: boolean; task_id: string }>("/social/scan", { method: "POST" }),
+    scan: (lang?: string) => req<{ started: boolean; task_id: string; lang: string | null }>(
+      `/social/scan${lang ? `?lang=${lang}` : ""}`, { method: "POST" }),
     clearPosts: () => req<{ deleted: number }>("/social/posts", { method: "DELETE" }),
     status: () => req<SocialScanStatus>("/social/status"),
     timeseries: (days = 180, top = 6) =>

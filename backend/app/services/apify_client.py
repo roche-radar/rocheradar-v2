@@ -205,20 +205,21 @@ _NORMALIZERS = {
 
 # ── actor input builders ──────────────────────────────────
 
-def _build_input(platform: str, term: str, max_results: int, since: str | None) -> dict:
+def _build_input(platform: str, term: str, max_results: int, since: str | None,
+                 lang_filter: str | None = None) -> dict:
     """Map a search term to the Actor's expected input shape.
 
     `term` is a hashtag/keyword (field scan) or a handle (KOL scan). For
     hashtag-based actors we strip a leading '#'; for keyword/search actors we
     pass the term as-is.
     """
-    # Hashtag-based actors can't take spaces — collapse "lung cancer" → "lungcancer"
     tag = re.sub(r"\s+", "", term.lstrip("#@"))
     if platform == "instagram":
         return {"hashtags": [tag], "resultsType": "posts", "resultsLimit": max_results}
     if platform == "twitter":
-        # microworlds/twitter-scraper input schema
-        return {"searchTerms": [term], "maxItems": max_results}
+        # Native Twitter operator filters by language at search time
+        q = f"{term} lang:{lang_filter}" if lang_filter and lang_filter != "all" else term
+        return {"searchTerms": [q], "maxItems": max_results}
     if platform == "linkedin":
         # apify/linkedin-post-search-scraper — keywords as array
         return {"keywords": [term], "resultsLimit": max_results}
@@ -246,11 +247,20 @@ def fetch_platform_expanded(
 ) -> list[dict]:
     """Like fetch_platform but accepts pre-expanded term lists.
 
-    Instagram  — all hashtags in one actor call (actor supports list).
-    Twitter    — keywords joined with OR into a single search query.
-    LinkedIn   — primary keyword.
+    Instagram  — Apify actor, all hashtags in one call.
+    Twitter    — TinyFish search (Apify deferred to later).
+    LinkedIn   — TinyFish search (Apify deferred to later).
     Facebook   — page_urls scraper when available, else keyword search.
     """
+    # Twitter + LinkedIn now use TinyFish search (free under existing licence)
+    if platform in ("twitter", "linkedin"):
+        from app.services.tinyfish_social import fetch_via_tinyfish
+        # Mix hashtags + keywords for broader recall
+        terms = [t for t in (keywords + hashtags) if t and t.strip()][:6]
+        if not terms:
+            return []
+        return fetch_via_tinyfish(platform, terms, max_results=max_results, lang_filter=lang_filter)
+
     token = get_settings().apify_api_token
     if not token:
         logger.warning("apify.no_token")
@@ -340,9 +350,15 @@ def fetch_platform_expanded(
 
 def fetch_platform(platform: str, term: str, max_results: int = 30,
                    window_days: int = 180, timeout_secs: int = 180,
-                   page_urls: list[str] | None = None) -> list[dict]:
+                   page_urls: list[str] | None = None,
+                   lang_filter: str | None = None) -> list[dict]:
     """Run one platform Actor.
     Returns normalized posts filtered to the last `window_days`. Never raises."""
+    # Twitter + LinkedIn use TinyFish search (Apify deferred)
+    if platform in ("twitter", "linkedin"):
+        from app.services.tinyfish_social import fetch_via_tinyfish
+        return fetch_via_tinyfish(platform, [term], max_results=max_results, lang_filter=lang_filter)
+
     token = get_settings().apify_api_token
     if not token:
         logger.warning("apify.no_token")
@@ -377,7 +393,8 @@ def fetch_platform(platform: str, term: str, max_results: int = 30,
             logger.warning("apify.unknown_platform", platform=platform)
             return []
         run_input = _build_input(platform, term, max_results,
-                                 (datetime.now(timezone.utc) - timedelta(days=window_days)).date().isoformat())
+                                 (datetime.now(timezone.utc) - timedelta(days=window_days)).date().isoformat(),
+                                 lang_filter=lang_filter)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
 

@@ -104,13 +104,13 @@ def _set_status(**fields) -> None:
     soft_time_limit=3000,
     time_limit=3300,
 )
-def social_scan(self) -> dict:
-    """Run a full social trend scan based on the current AppSettings config."""
+def social_scan(self, lang_override: str | None = None) -> dict:
+    """Run a full social trend scan. lang_override: 'fr'|'en'|'all' to override settings."""
     import asyncio
-    return asyncio.run(_run_scan())
+    return asyncio.run(_run_scan(lang_override))
 
 
-async def _run_scan() -> dict:
+async def _run_scan(lang_override: str | None = None) -> dict:
     from datetime import datetime, timezone
     from app.database import CelerySessionLocal
     from app.models import AppSettings, SocialPost, Target
@@ -134,7 +134,7 @@ async def _run_scan() -> dict:
         max_per_query = s.social_max_per_query if s else 30
         include_kols = s.social_include_kols if s else True
         fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
-        lang_filter = getattr(s, "social_lang_filter", "fr") or "fr"
+        lang_filter = lang_override or getattr(s, "social_lang_filter", "fr") or "fr"
 
         # List of (search_term, platform_hint) for KOL scanning.
         # Prefer twitter_handle over name for Twitter (more precise); name is used as fallback.
@@ -195,11 +195,15 @@ async def _run_scan() -> dict:
     async def _run_one(term: str, kind: str, platform: str) -> None:
         nonlocal done_count, inserted_count
         async with sem:
+            # Always scrape worldwide — language is detected per post and
+            # stored. The UI's FR/EN/Global filter is display-only, so the
+            # same scrape serves all modes (no double Apify cost).
             posts = await loop.run_in_executor(
                 None,
                 lambda p=platform, t=term: apify_client.fetch_platform(
                     p, t, max_results=max_per_query, window_days=window,
                     page_urls=fb_page_urls if p == "facebook" else None,
+                    lang_filter=None,
                 ),
             )
         local_inserted = 0
@@ -208,12 +212,8 @@ async def _run_scan() -> dict:
             if not _is_pharma_relevant(post):
                 logger.debug("social_scan.filtered_irrelevant", platform=post.get("platform"), url=post.get("post_url", "")[:80])
                 continue
-            # Language filter — skip posts that don't match configured language
-            if lang_filter and lang_filter != "all":
-                post_lang = _detect_lang(post.get("text", ""))
-                if post_lang != lang_filter:
-                    logger.debug("social_scan.filtered_lang", lang=post_lang, wanted=lang_filter, url=post.get("post_url", "")[:80])
-                    continue
+            # NOTE: posts saved regardless of language to maximize Apify ROI.
+            # Language is detected and stored; UI filters by language at display time.
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"],
@@ -372,13 +372,15 @@ async def _run_discover(query: str, lang_override: str | None = None) -> dict:
 
     # One actor call per platform with all terms batched — same cost as a single-term search
     async def _fetch_platform(p: str) -> list[dict]:
+        # Worldwide scrape — UI's language filter is display-only,
+        # so one Apify call serves all language modes.
         return await loop.run_in_executor(
             None,
             lambda: apify_client.fetch_platform_expanded(
                 p, hashtags, keywords,
                 max_results=30, window_days=window,
                 page_urls=fb_page_urls if p == "facebook" else None,
-                lang_filter=lang_filter,
+                lang_filter=None,
             ),
         )
 
@@ -396,11 +398,7 @@ async def _run_discover(query: str, lang_override: str | None = None) -> dict:
         for post in posts:
             # Tag with primary keyword as topic for display in trend chips
             post["topic"] = keywords[0] if keywords else query
-            # Language filter — skip non-matching posts when not in "all" mode
-            if lang_filter and lang_filter != "all":
-                post_lang = _detect_lang(post.get("text", ""))
-                if post_lang != lang_filter:
-                    continue
+            # Posts saved regardless of language — UI filters at display time
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"], post_url=post["post_url"],

@@ -153,22 +153,31 @@ async def _seed_defaults() -> None:
         if s and not s.social_keywords:
             default_keywords = [
                 # Roche / Genentech brands
+                # Roche brand & drug names (universal — no translation needed)
                 "Tecentriq", "Ocrevus", "Hemlibra", "Kadcyla", "Perjeta",
                 "Avastin", "Herceptin", "Polivy", "Lunsumio", "Roche", "Genentech",
-                # Key competitor drugs (important for pharma intelligence)
+                "RocheFrance",
+                # Competitor drugs
                 "Keytruda", "Opdivo", "Imfinzi", "Libtayo",
-                # Oncology disease areas
-                "lungcancer", "NSCLC", "breastcancer", "colorectalcancer",
-                "lymphoma", "leukemia", "multiplemyeloma", "melanoma",
-                # Treatments / mechanisms
-                "immunotherapy", "PDL1", "HER2", "EGFR", "BRCA", "CDK46",
-                "cancertreatment", "clinicaltrial", "biomarker",
-                # Patient community hashtags
-                "cancersurvivor", "cancerwarrior", "cancerawareness", "patientadvocacy",
-                # Neurology / rare disease
-                "multiplesclerosis", "hemophilia", "raredisease",
-                # Congresses
-                "ASCO2025", "ESMO2025", "AACR2025",
+                # ── FRENCH oncology disease keywords (hashtag-safe, no spaces) ──
+                "cancerdusein", "cancerdupoumon", "cancercolorectal",
+                "cancerovaire", "cancerprostate", "leucémie", "lymphome",
+                "myélome", "mélanome", "tumeur", "métastase",
+                # French treatments / research
+                "immunothérapie", "chimiothérapie", "essaiclinique",
+                "rechercheclinique", "rechercheencancérologie", "biomarqueurs",
+                "médecinepersonnalisée", "thérapieciblée", "oncologie",
+                # French patient communities
+                "luttecontrelecancer", "patientsexperts", "cancersurvivants",
+                "octobrerose", "marsbleu", "vaincrelecancer",
+                # French congresses / institutions
+                "ASCO2026", "ESMO2026", "INCa", "ligueducancer",
+                "fondationARC", "unicancer", "InsermFrance",
+                # English oncology fallbacks (some French KOLs post in English)
+                "lungcancer", "NSCLC", "breastcancer", "immunotherapy",
+                "clinicaltrial", "biomarker", "patientadvocacy",
+                # Neurology / rare disease (French)
+                "scléroseenplaques", "maladieraresfrance", "hémophilie",
             ]
             s.social_keywords = json.dumps(default_keywords)
             await sess.commit()

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api, type SocialPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store";
 
 const PLATFORM_COLOR: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
@@ -109,7 +110,7 @@ export default function SocialTrends() {
   const [days, setDays]           = useState(DEFAULTS.days);
   const [kind, setKind]           = useState(DEFAULTS.kind);
   const [minLikes, setMinLikes]   = useState(DEFAULTS.minLikes);
-  const [language, setLanguage]   = useState(DEFAULTS.language);
+  const { socialLang: language, setSocialLang: setLanguage } = useAppStore();
   const [fromDate, setFromDate]   = useState(DEFAULTS.fromDate);
   const [toDate, setToDate]       = useState(DEFAULTS.toDate);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
@@ -208,7 +209,7 @@ export default function SocialTrends() {
     if (apifyOn) searchMut.mutate();
   }
   function clearSearch() { setSubmitted(""); setQuery(""); setSearching(false); setPolls(0); }
-  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setLanguage(DEFAULTS.language); setFromDate(DEFAULTS.fromDate); setToDate(DEFAULTS.toDate); setTopicFilter(null); }
+  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setLanguage("fr"); setFromDate(DEFAULTS.fromDate); setToDate(DEFAULTS.toDate); setTopicFilter(null); }
 
   const allPosts = allData?.top_posts ?? [];
 
@@ -257,7 +258,7 @@ export default function SocialTrends() {
   const searchPosts = searchData?.results ?? [];
   const isDefault = sortBy === DEFAULTS.sortBy && platform === DEFAULTS.platform &&
     days === DEFAULTS.days && kind === DEFAULTS.kind && minLikes === DEFAULTS.minLikes &&
-    language === DEFAULTS.language && !fromDate && !toDate && !topicFilter;
+    language === "fr" && !fromDate && !toDate && !topicFilter;
 
   return (
     <div className="glass rounded-xl flex flex-col h-full overflow-hidden">
