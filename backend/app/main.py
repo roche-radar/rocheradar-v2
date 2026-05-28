@@ -384,7 +384,10 @@ async def daily_brief(refresh: bool = False):
         if not refresh:
             cached = r.get(_KEY)
             if cached:
-                return _json.loads(cached)
+                result = _json.loads(cached)
+                if isinstance(result, dict):
+                    result["cached"] = True
+                return result
         else:
             r.delete(_KEY)
     except Exception:
@@ -473,7 +476,7 @@ async def daily_brief(refresh: bool = False):
     # Only cache if we got actual points
     try:
         if r and points:
-            r.set(_BRIEF_KEY, _json.dumps(result), ex=21600)
+            r.set(_KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
 
