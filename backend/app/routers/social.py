@@ -85,6 +85,17 @@ async def trigger_scan():
     return {"started": True, "task_id": task.id}
 
 
+@router.delete("/posts")
+async def clear_posts(db: AsyncSession = Depends(get_db)):
+    """Delete all social posts. Used for testing scraping/filters from a clean slate."""
+    from sqlalchemy import delete, func
+    count_q = await db.execute(select(func.count()).select_from(SocialPost))
+    before = count_q.scalar() or 0
+    await db.execute(delete(SocialPost))
+    await db.commit()
+    return {"deleted": before}
+
+
 @router.get("/status")
 async def scan_status():
     try:

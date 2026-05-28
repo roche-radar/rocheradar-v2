@@ -367,6 +367,14 @@ function SocialScanCard({ form, set, apifyConfigured }: {
     mutationFn: api.social.scan,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["social-status"] }),
   });
+  const clearSocialMut = useMutation({
+    mutationFn: api.social.clearPosts,
+    onSuccess: (d) => {
+      alert(`Deleted ${d.deleted} social posts.`);
+      qc.invalidateQueries({ queryKey: ["social-trends-all"] });
+      qc.invalidateQueries({ queryKey: ["social-brief"] });
+    },
+  });
 
   const running = status?.running;
 
@@ -522,6 +530,16 @@ function SocialScanCard({ form, set, apifyConfigured }: {
           {running
             ? <><Loader2 size={14} className="animate-spin" /> Scanning…</>
             : <><Play size={14} /> Run Social Scan</>}
+        </button>
+
+        <button onClick={() => {
+            if (confirm("Delete ALL social posts? This only affects social_posts table — KOL data is untouched.")) clearSocialMut.mutate();
+          }}
+          disabled={clearSocialMut.isPending}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50">
+          {clearSocialMut.isPending
+            ? <><Loader2 size={14} className="animate-spin" /> Clearing…</>
+            : <>Clear Social Posts</>}
         </button>
         {running && (
           <span className="text-xs text-gray-500 dark:text-[#94a3b8]">
