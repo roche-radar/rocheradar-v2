@@ -108,9 +108,13 @@ export default function Dashboard() {
 
   const { data: brief, isLoading: briefLoading } = useQuery({
     queryKey: ["daily-brief"],
-    queryFn: api.dailyBrief,
-    staleTime: 6 * 60 * 60 * 1000, // 6h — matches Redis TTL
+    queryFn: () => api.dailyBrief(),
+    staleTime: 6 * 60 * 60 * 1000,
     retry: false,
+  });
+  const briefMut = useMutation({
+    mutationFn: () => api.dailyBrief(true),
+    onSuccess: (data) => qc.setQueryData(["daily-brief"], data),
   });
 
   const triggerMut = useMutation({
@@ -185,50 +189,64 @@ export default function Dashboard() {
       )}
 
       {/* Daily Brief */}
-      {(briefLoading || (brief && brief.points.length > 0)) && (
-        <div className="glass rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
-                <Sparkles size={16} className="text-amber-600 dark:text-amber-400"/>
-              </div>
-              <div>
-                <h2 className="font-semibold text-sm">Today's Intelligence Brief</h2>
-                <p className="text-xs text-gray-400">AI-generated key takeaways from KOL monitoring + social trends</p>
-              </div>
+      <div className="glass rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+              <Sparkles size={16} className="text-amber-600 dark:text-amber-400"/>
             </div>
-            {brief && (
+            <div>
+              <h2 className="font-semibold text-sm">Today's Intelligence Brief</h2>
+              <p className="text-xs text-gray-400">AI-generated key takeaways from KOL monitoring + social trends</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {brief && brief.kol_count > 0 && (
               <span className="text-[10px] text-gray-400">{brief.kol_count} insights · {brief.social_count} posts</span>
             )}
+            <button onClick={() => briefMut.mutate()} disabled={briefMut.isPending || briefLoading}
+              title="Regenerate brief from latest DB data"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors">
+              {briefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+              Generate
+            </button>
           </div>
-          {briefLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
-              <Loader2 size={14} className="animate-spin"/>Generating brief…
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {brief!.points.map((p: DailyBriefPoint, i: number) => (
-                <div key={i} className={cn(
-                  "flex items-start gap-3 p-3 rounded-xl border",
-                  p.priority === "high"
-                    ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20"
-                    : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5"
-                )}>
-                  <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
-                    p.priority === "high" ? "bg-amber-500" : "bg-gray-300 dark:bg-slate-600")}/>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
-                    <span className={cn("text-[10px] font-semibold mt-0.5 inline-block",
-                      p.source === "kol" ? "text-blue-500" : p.source === "social" ? "text-orange-500" : "text-purple-500")}>
-                      {p.source === "kol" ? "KOL insight" : p.source === "social" ? "Social trend" : "KOL + Social"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-      )}
+        {briefLoading || briefMut.isPending ? (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Loader2 size={14} className="animate-spin"/>Generating brief…
+          </div>
+        ) : brief && brief.points.length > 0 ? (
+          <div className="space-y-2">
+            {brief.points.map((p: DailyBriefPoint, i: number) => (
+              <div key={i} className={cn(
+                "flex items-start gap-3 p-3 rounded-xl border",
+                p.priority === "high"
+                  ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20"
+                  : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5"
+              )}>
+                <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
+                  p.priority === "high" ? "bg-amber-500" : "bg-gray-300 dark:bg-slate-600")}/>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
+                  <span className={cn("text-[10px] font-semibold mt-0.5 inline-block",
+                    p.source === "kol" ? "text-blue-500" : p.source === "social" ? "text-orange-500" : "text-purple-500")}>
+                    {p.source === "kol" ? "KOL insight" : p.source === "social" ? "Social trend" : "KOL + Social"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : brief?.error ? (
+          <p className="text-xs text-red-400">LLM error: {brief.error}</p>
+        ) : (
+          <p className="text-sm text-gray-400">
+            {brief && (brief.kol_count > 0 || brief.social_count > 0)
+              ? "Click Generate to create the brief from existing data."
+              : "No data yet — run a pipeline first, then click Generate."}
+          </p>
+        )}
+      </div>
 
       {/* Intelligence Analytics */}
       <div className="glass rounded-xl">

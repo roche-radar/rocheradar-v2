@@ -169,6 +169,7 @@ export interface DailyBrief {
   cached: boolean;
   kol_count: number;
   social_count: number;
+  error?: string | null;
 }
 
 export interface KolInsight {
@@ -205,7 +206,7 @@ export interface TopicsData {
 // ── API calls ─────────────────────────────────────────────
 export const api = {
   stats: () => req<Stats>("/stats"),
-  dailyBrief: () => req<DailyBrief>("/stats/daily-brief"),
+  dailyBrief: (refresh = false) => req<DailyBrief>(`/stats/daily-brief${refresh ? "?refresh=true" : ""}`),
   topics: (days = 7, diseaseArea?: string) => req<TopicsData>(`/stats/topics?days=${days}${diseaseArea && diseaseArea !== "all" ? `&disease_area=${diseaseArea}` : ""}`),
 
   targets: {

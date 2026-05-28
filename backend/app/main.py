@@ -356,20 +356,24 @@ async def stats():
 
 
 @app.get("/api/stats/daily-brief")
-async def daily_brief():
-    """AI-generated key takeaways from today's KOL insights + recent social trends.
-    Cached in Redis for 6 hours so it doesn't burn LLM tokens on every dashboard load."""
+async def daily_brief(refresh: bool = False):
+    """AI-generated key takeaways from all KOL insights + social trends in DB.
+    Cached in Redis for 6 hours. Pass ?refresh=true to force regeneration."""
     import json as _json
     from datetime import datetime, timezone, timedelta
 
     _BRIEF_KEY = "daily_brief:v1"
+    r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
-        cached = r.get(_BRIEF_KEY)
-        if cached:
-            return _json.loads(cached)
+        if not refresh:
+            cached = r.get(_BRIEF_KEY)
+            if cached:
+                return _json.loads(cached)
+        else:
+            r.delete(_BRIEF_KEY)
     except Exception:
         r = None
 
@@ -378,56 +382,79 @@ async def daily_brief():
     from sqlalchemy import select, desc
 
     now = datetime.now(timezone.utc)
-    today_start = now - timedelta(hours=48)  # 48h window so weekend runs still show
 
     async with AsyncSessionLocal() as sess:
+        # Use most recent 50 insights from the DB regardless of date
         ins_rows = await sess.execute(
             select(ExtractedInsight, Target.name)
             .join(Target, ExtractedInsight.target_id == Target.id)
-            .where(ExtractedInsight.extracted_at >= today_start)
             .order_by(desc(ExtractedInsight.extracted_at))
-            .limit(40)
+            .limit(50)
         )
         insights = ins_rows.all()
 
+        # Top-engaged social posts from last 30 days
         social_rows = await sess.execute(
             select(SocialPost)
-            .where(SocialPost.scraped_at >= now - timedelta(days=7))
+            .where(SocialPost.scraped_at >= now - timedelta(days=30))
             .order_by(desc(SocialPost.likes + SocialPost.comments * 2))
             .limit(20)
         )
         social_posts = social_rows.scalars().all()
 
     if not insights and not social_posts:
-        return {"points": [], "generated_at": None, "cached": False}
+        return {"points": [], "generated_at": None, "cached": False, "kol_count": 0, "social_count": 0}
 
     insights_text = "\n".join(
-        f"- [{name}] {ins.topic}: {ins.what_they_said}"
+        f"- KOL:{name} | topic:{ins.topic} | sentiment:{ins.sentiment or 'neutral'} | category:{ins.category or ''} | said:\"{(ins.what_they_said or '')[:200]}\""
         for ins, name in insights
-    ) or "No KOL insights today."
+    ) or "No KOL insights available."
 
     social_text = "\n".join(
-        f"- [{p.platform}] {(p.text or '')[:200]} (likes:{p.likes})"
+        f"- [{p.platform},{p.likes}likes] topic:{p.topic} | \"{(p.text or '')[:150]}\""
         for p in social_posts
     ) or "No trending social posts."
 
     from app.services.llm_router import call_pro
+    import structlog as _sl
+    _log = _sl.get_logger("daily_brief")
+
     prompt = (
-        "You are a pharma intelligence analyst for Roche.\n"
-        "Based on the KOL insights and social trends below, generate 5-7 concise bullet-point "
-        "key takeaways that Roche's medical team should focus on.\n\n"
-        f"KOL INSIGHTS (last 48h):\n{insights_text}\n\n"
-        f"TRENDING SOCIAL (last 7 days, top engagement):\n{social_text}\n\n"
-        'Return JSON: {"points": [{"text": "...", "source": "kol|social|both", "priority": "high|medium"}]}'
+        "You are a senior pharma intelligence analyst for Roche's oncology strategy team.\n\n"
+        "Below are real KOL statements and social media trends collected this week.\n"
+        "Generate 5 sharp, SPECIFIC intelligence points for Roche's strategy team.\n\n"
+        "Rules:\n"
+        "- Mention actual drug names, KOL names, or specific data points when available\n"
+        "- Each point must be actionable: what should Roche watch, do, or address?\n"
+        "- Flag competitive threats or unmet needs explicitly\n"
+        "- Do NOT write generic observations — be precise\n"
+        "- Each point max 30 words\n\n"
+        f"KOL STATEMENTS:\n{insights_text}\n\n"
+        f"SOCIAL TRENDS (ranked by engagement):\n{social_text}\n\n"
+        "Return ONLY a JSON array of 5 strings. No markdown, no explanation:\n"
+        '["point 1", "point 2", "point 3", "point 4", "point 5"]'
     )
+
+    llm_error = None
+    points = []
     try:
-        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1024)
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2048)
+        _log.info("daily_brief.llm_raw", raw=raw[:400])
         import re as _re
-        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
-        parsed = _json.loads(m.group(0)) if m else {}
-        points = parsed.get("points", [])
-    except Exception:
-        points = []
+        # Extract all complete quoted strings — works even if array is truncated
+        strings = _re.findall(r'"((?:[^"\\]|\\.)+[.!?])"', raw)
+        if not strings:
+            # Fallback: any quoted string ≥ 20 chars
+            strings = [s for s in _re.findall(r'"((?:[^"\\]|\\.){20,})"', raw) if not s.startswith("http")]
+        roche_terms = {"roche","tecentriq","atezolizumab","alecensa","alectinib","perjeta","herceptin","avastin","kadcyla","polivy","hemlibra","ocrevus","vabysmo"}
+        def _priority(s: str) -> str:
+            return "high" if any(t in s.lower() for t in roche_terms) or any(w in s.lower() for w in ["competitor","unmet","urgent","critical","warning","concern"]) else "medium"
+        points = [{"text": s, "source": "both", "priority": _priority(s)} for s in strings[:7]]
+        if not points:
+            llm_error = f"No strings extracted: {raw[:200]}"
+    except Exception as exc:
+        llm_error = str(exc)[:300]
+        _log.warning("daily_brief.llm_failed", exc=llm_error)
 
     result = {
         "points": points,
@@ -435,11 +462,13 @@ async def daily_brief():
         "cached": False,
         "kol_count": len(insights),
         "social_count": len(social_posts),
+        "error": llm_error,
     }
 
+    # Only cache if we got actual points
     try:
-        if r:
-            r.set(_BRIEF_KEY, _json.dumps(result), ex=21600)  # 6h TTL
+        if r and points:
+            r.set(_BRIEF_KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
 
