@@ -275,33 +275,46 @@ def _expand_query(query: str) -> dict[str, list[str]]:
     from app.services.llm_router import call_llm
 
     prompt = (
-        "You are a pharma social media intelligence expert.\n"
+        "You are a pharma social media intelligence expert focused on the FRENCH market.\n"
         "Given a user's search query, generate search terms for social media scrapers.\n"
+        "Bias the expansion towards France: include the French translation of the topic, "
+        "French medical hashtags, and a couple of global English terms so worldwide posts are still captured.\n\n"
         "Return ONLY a JSON object with two keys:\n"
-        '- "hashtags": 4-6 terms for Instagram (no spaces, no # prefix, camelCase or lowercase)\n'
-        '- "keywords": 4-6 terms for Twitter/LinkedIn/Facebook (can include spaces and phrases)\n\n'
-        "Focus on: drug names, disease names, company names, treatment types, congress names, patient communities.\n\n"
+        '- "hashtags": exactly 5 terms for Instagram (no spaces, no # prefix). '
+        "Mix: 3-4 French/France-related + 1-2 English/global. Use real French medical hashtags. "
+        "Keep this list short — each hashtag costs Apify credits.\n"
+        '- "keywords": 6-8 terms for Twitter/LinkedIn/Facebook (can include spaces and phrases). '
+        "Mix: 4-5 in French + 2-3 in English. These are free via TinyFish.\n\n"
+        "Focus on: drug names (universal), French disease names, French treatment terms, "
+        "French institutions (INCa, Ligue contre le cancer, ARC, Unicancer, Inserm), "
+        "patient communities (octobrerose, marsbleu), congresses (also in French).\n\n"
         "Examples:\n"
-        '- "roche" → {"hashtags": ["Roche", "RocheOncology", "genentech", "pharma"], '
-        '"keywords": ["Roche", "Roche oncology", "Genentech", "pharma news"]}\n'
-        '- "lung cancer treatment" → {"hashtags": ["lungcancer", "NSCLC", "immunotherapy", "cancertreatment"], '
-        '"keywords": ["lung cancer", "NSCLC", "immunotherapy", "cancer treatment"]}\n'
-        '- "Tecentriq" → {"hashtags": ["Tecentriq", "atezolizumab", "pdl1", "immunotherapy"], '
-        '"keywords": ["Tecentriq", "atezolizumab", "PD-L1 cancer"]}\n'
-        '- "ASCO 2025" → {"hashtags": ["ASCO2025", "ASCO", "oncology2025"], '
-        '"keywords": ["ASCO 2025", "ASCO annual meeting", "oncology conference"]}\n\n'
+        '- "lung cancer" → {"hashtags": ["cancerdupoumon", "poumon", "oncologiefrance", '
+        '"octobrerose", "cancersurvivants", "lungcancer", "NSCLC"], '
+        '"keywords": ["cancer du poumon", "cancer poumon France", "oncologie pulmonaire", '
+        '"essai clinique poumon", "Ligue contre le cancer poumon", "lung cancer", "NSCLC research"]}\n'
+        '- "Tecentriq" → {"hashtags": ["Tecentriq", "atezolizumab", "immunothérapie", '
+        '"oncologiefrance", "essaiclinique", "immunotherapy", "pdl1"], '
+        '"keywords": ["Tecentriq", "atezolizumab", "immunothérapie Roche", '
+        '"Tecentriq France", "essai clinique atezolizumab", "atezolizumab clinical trial"]}\n'
+        '- "ASCO 2026" → {"hashtags": ["ASCO2026", "ASCO", "oncologiefrance", '
+        '"congresoncologie", "rechercheclinique", "oncology2026"], '
+        '"keywords": ["ASCO 2026", "ASCO 2026 France", "congrès oncologie ASCO", '
+        '"actualité oncologie", "ASCO annual meeting"]}\n\n'
         f'Query: "{query}"'
     )
     fallback = {"hashtags": [query], "keywords": [query]}
     try:
-        reply = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=120)
+        reply = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=400)
         reply = reply.strip()
         if "```" in reply:
             reply = reply.split("```")[1].lstrip("json").strip()
         parsed = _json.loads(reply)
         if isinstance(parsed, dict):
-            ht = [t.strip() for t in parsed.get("hashtags", []) if isinstance(t, str) and t.strip()][:6]
-            kw = [t.strip() for t in parsed.get("keywords", []) if isinstance(t, str) and t.strip()][:6]
+            # Hashtag cap = 5 to control Apify Instagram cost (per-hashtag billing).
+            # Keywords cap = 8 (TinyFish for Twitter/LinkedIn is not per-query billed).
+            ht = [t.strip() for t in parsed.get("hashtags", []) if isinstance(t, str) and t.strip()][:5]
+            kw = [t.strip() for t in parsed.get("keywords", []) if isinstance(t, str) and t.strip()][:8]
             if ht or kw:
                 return {"hashtags": ht or [query], "keywords": kw or [query]}
     except Exception as exc:

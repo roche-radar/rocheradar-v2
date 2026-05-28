@@ -263,6 +263,25 @@ async def discover(q: str, fresh: bool = True, lang: str | None = None, db: Asyn
     return {"query": term, "results": results, "fetching": fetching}
 
 
+@router.get("/discover/history")
+async def discover_history(db: AsyncSession = Depends(get_db)):
+    """List of recently-searched queries in Social Trends discover, deduped, latest first."""
+    rows = await db.execute(
+        select(SocialPost.query, SocialPost.scraped_at)
+        .where(SocialPost.query.isnot(None))
+        .order_by(desc(SocialPost.scraped_at))
+        .limit(300)
+    )
+    seen: set = set()
+    queries = []
+    for q, at in rows:
+        if not q or q in seen:
+            continue
+        seen.add(q)
+        queries.append({"query": q, "scraped_at": at.isoformat() if at else ""})
+    return {"queries": queries[:20]}
+
+
 @router.get("/discover/status")
 async def discover_status(q: str):
     try:

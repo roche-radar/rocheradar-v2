@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useHiddenRecents } from "@/lib/hiddenRecents";
 import {
   Search, RefreshCw, ExternalLink, Database, Globe,
   Youtube, FileText, Lock, AlertCircle, Play, X, BookOpen,
@@ -75,6 +76,11 @@ export default function TopicExplorer() {
   const [toDate, setToDate]           = useState("");
 
   const { data: history } = useQuery({ queryKey: ["disc-hist"], queryFn: api.discovery.history });
+  const { hide: hideRecent, isHidden: isRecentHidden } = useHiddenRecents("discovery-hidden-recents");
+  const visibleRecents = useMemo(
+    () => (history?.queries ?? []).filter(h => !isRecentHidden(h.query)),
+    [history, isRecentHidden]
+  );
 
   const searchMut = useMutation({
     mutationFn: ({ q, refresh, lang }: { q: string; refresh: boolean; lang: string }) =>
@@ -271,16 +277,19 @@ export default function TopicExplorer() {
                 <div className="my-2 h-px bg-gray-100 dark:bg-[#1e3a5f]/40" />
               </>
             )}
-            {(history?.queries?.length ?? 0) > 0 && (
+            {visibleRecents.length > 0 && (
               <>
                 <p className="text-[10px] font-black uppercase tracking-widest text-gray-300 dark:text-[#334155] px-2 py-1">Recent</p>
-                {history!.queries.slice(0,10).map(h => (
-                  <button key={h.query} onClick={() => run(h.query)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-gray-400 dark:text-[#64748b] hover:text-gray-700 dark:hover:text-[#94a3b8] hover:bg-gray-50 dark:hover:bg-[#111827]/60 transition-all group text-left">
+                {visibleRecents.slice(0,10).map(h => (
+                  <div key={h.query} className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-gray-400 dark:text-[#64748b] hover:text-gray-700 dark:hover:text-[#94a3b8] hover:bg-gray-50 dark:hover:bg-[#111827]/60 transition-all group">
                     <Clock size={9} className="shrink-0 opacity-50"/>
-                    <span className="truncate flex-1">{h.query}</span>
-                    <ChevronRight size={9} className="opacity-0 group-hover:opacity-40"/>
-                  </button>
+                    <button onClick={() => run(h.query)} className="truncate flex-1 text-left">{h.query}</button>
+                    <button onClick={(e) => { e.stopPropagation(); hideRecent(h.query); }}
+                      title="Hide from recent (data stays cached)"
+                      className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity shrink-0 p-0.5">
+                      <X size={10}/>
+                    </button>
+                  </div>
                 ))}
               </>
             )}

@@ -110,6 +110,9 @@ export default function Dashboard() {
     queryKey: ["daily-brief"],
     queryFn: () => api.dailyBrief(),
     staleTime: 6 * 60 * 60 * 1000,
+    gcTime: 6 * 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const briefMut = useMutation({
@@ -123,6 +126,9 @@ export default function Dashboard() {
     queryKey: ["kol-brief"],
     queryFn: () => api.kolBrief(),
     staleTime: 6 * 60 * 60 * 1000,
+    gcTime: 6 * 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const kolBriefMut = useMutation({
@@ -134,6 +140,9 @@ export default function Dashboard() {
     queryKey: ["social-brief"],
     queryFn: () => api.socialBrief(),
     staleTime: 6 * 60 * 60 * 1000,
+    gcTime: 6 * 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const socialBriefMut = useMutation({

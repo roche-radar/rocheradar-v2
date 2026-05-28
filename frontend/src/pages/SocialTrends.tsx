@@ -2,11 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Flame, Heart, MessageCircle, Eye, Share2, ExternalLink, X,
-  Sparkles, Loader2, Search, RefreshCw, SlidersHorizontal,
+  Sparkles, Loader2, Search, RefreshCw, SlidersHorizontal, Clock,
 } from "lucide-react";
 import { api, type SocialPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
+import { useHiddenRecents } from "@/lib/hiddenRecents";
 
 const PLATFORM_COLOR: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
@@ -52,12 +53,12 @@ const MIN_LIKES_OPTIONS = [
 
 // Defaults — used for "reset" detection and actual reset
 const LANGUAGE_OPTIONS = [
+  { value: "all", label: "Global (all)" },
   { value: "fr",  label: "France only" },
   { value: "en",  label: "English only" },
-  { value: "all", label: "Global (all)" },
 ];
 
-const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0, language: "fr", fromDate: "", toDate: "" };
+const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0, language: "all", fromDate: "", toDate: "" };
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -142,6 +143,18 @@ export default function SocialTrends() {
     refetchInterval: (q) => (q.state.data?.running ? 3000 : 30_000),
   });
 
+  // Recent discover queries (sidebar) — UI hide list only, data stays cached
+  const { data: discHist } = useQuery({
+    queryKey: ["social-disc-hist"],
+    queryFn: api.social.discoverHistory,
+    staleTime: 30_000,
+  });
+  const { hide: hideRecent, isHidden: isRecentHidden } = useHiddenRecents("social-hidden-recents");
+  const visibleRecents = useMemo(
+    () => (discHist?.queries ?? []).filter(h => !isRecentHidden(h.query)),
+    [discHist, isRecentHidden]
+  );
+
   // Tracks when the search was fired so we know how long we've been waiting
   const searchStartedAt = useRef<number>(0);
   // True once we've seen discoverStatus.running === true (confirms the Celery task started)
@@ -209,7 +222,7 @@ export default function SocialTrends() {
     if (apifyOn) searchMut.mutate();
   }
   function clearSearch() { setSubmitted(""); setQuery(""); setSearching(false); setPolls(0); }
-  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setLanguage("fr"); setFromDate(DEFAULTS.fromDate); setToDate(DEFAULTS.toDate); setTopicFilter(null); }
+  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setLanguage("all"); setFromDate(DEFAULTS.fromDate); setToDate(DEFAULTS.toDate); setTopicFilter(null); }
 
   const allPosts = allData?.top_posts ?? [];
 
@@ -258,7 +271,7 @@ export default function SocialTrends() {
   const searchPosts = searchData?.results ?? [];
   const isDefault = sortBy === DEFAULTS.sortBy && platform === DEFAULTS.platform &&
     days === DEFAULTS.days && kind === DEFAULTS.kind && minLikes === DEFAULTS.minLikes &&
-    language === "fr" && !fromDate && !toDate && !topicFilter;
+    language === "all" && !fromDate && !toDate && !topicFilter;
 
   return (
     <div className="glass rounded-xl flex flex-col h-full overflow-hidden">
@@ -382,6 +395,26 @@ export default function SocialTrends() {
                 </FilterBtn>
               ))}
             </FilterSection>
+
+            {visibleRecents.length > 0 && (
+              <FilterSection title="Recent searches">
+                {visibleRecents.slice(0,10).map(h => (
+                  <div key={h.query}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-gray-500 dark:text-[#94a3b8] hover:bg-gray-100/70 dark:hover:bg-slate-800/60 transition-colors group">
+                    <Clock size={9} className="shrink-0 opacity-50"/>
+                    <button onClick={() => { setQuery(h.query); setSubmitted(h.query); }}
+                      className="truncate flex-1 text-left hover:text-gray-900 dark:hover:text-white">
+                      {h.query}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); hideRecent(h.query); }}
+                      title="Hide from recent (data stays cached for future searches)"
+                      className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity shrink-0 p-0.5">
+                      <X size={10}/>
+                    </button>
+                  </div>
+                ))}
+              </FilterSection>
+            )}
           </div>
         )}
 

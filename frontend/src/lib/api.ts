@@ -12,7 +12,13 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text();
     throw new Error(`${res.status}: ${text}`);
   }
-  return res.json() as Promise<T>;
+  // 204 No Content or empty body — don't try to parse JSON
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 // ── Types ─────────────────────────────────────────────────
@@ -340,5 +346,7 @@ export const api = {
       req<{ running: boolean; inserted?: number; error?: string; terms?: string[] }>(
         `/social/discover/status?q=${encodeURIComponent(q)}`
       ),
+    discoverHistory: () =>
+      req<{ queries: { query: string; scraped_at: string }[] }>("/social/discover/history"),
   },
 };

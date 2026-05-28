@@ -21,13 +21,13 @@ export const useAppStore = create<AppState>()(
       mobileMenuOpen: false,
       activeRunId: null,
       darkMode: false,
-      socialLang: "fr",
+      socialLang: "all",
       setSidebarOpen: (v) => set({ sidebarOpen: v }),
       setMobileMenuOpen: (v) => set({ mobileMenuOpen: v }),
       setActiveRunId: (id) => set({ activeRunId: id }),
       toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
       setSocialLang: (v) => set({ socialLang: v }),
     }),
-    { name: "rocheradar-ui" }
+    { name: "rocheradar-ui", version: 2, migrate: (s: any) => ({ ...s, socialLang: "all" }) }
   )
 );
