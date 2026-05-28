@@ -242,6 +242,7 @@ def fetch_platform_expanded(
     window_days: int = 180,
     timeout_secs: int = 180,
     page_urls: list[str] | None = None,
+    lang_filter: str | None = "fr",
 ) -> list[dict]:
     """Like fetch_platform but accepts pre-expanded term lists.
 
@@ -271,9 +272,11 @@ def fetch_platform_expanded(
 
     elif platform == "twitter":
         actor_id = ACTORS["twitter"]
-        # OR-join keywords into one search query; Twitter search natively supports OR
         terms_clean = [t.strip() for t in keywords if t.strip()][:4]
         combined = " OR ".join(f'"{t}"' if " " in t else t for t in terms_clean)
+        # Append lang:fr filter when lang_filter is set
+        if lang_filter and lang_filter != "all":
+            combined = f"({combined}) lang:{lang_filter}"
         run_input = {"searchTerms": [combined], "maxItems": max_results}
 
     elif platform == "linkedin":

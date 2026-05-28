@@ -58,6 +58,7 @@ class SettingsOut(BaseModel):
     social_include_kols: bool
     facebook_page_urls: list[str]
     apify_configured: bool
+    social_lang_filter: str
 
 
 class SettingsUpdate(BaseModel):
@@ -82,6 +83,7 @@ class SettingsUpdate(BaseModel):
     social_scan_hour: int | None = None
     social_include_kols: bool | None = None
     facebook_page_urls: list[str] | None = None
+    social_lang_filter: str | None = None  # "fr" | "en" | "all"
 
 
 class TestConnectionRequest(BaseModel):
@@ -126,6 +128,7 @@ def _to_out(s: AppSettings) -> SettingsOut:
         social_include_kols=bool(s.social_include_kols),
         facebook_page_urls=_jlist(s.facebook_page_urls, []),
         apify_configured=bool(_gs().apify_api_token),
+        social_lang_filter=getattr(s, "social_lang_filter", "fr") or "fr",
     )
 
 

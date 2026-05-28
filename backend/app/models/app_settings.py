@@ -57,6 +57,8 @@ class AppSettings(Base):
     # Facebook uses apify/facebook-posts-scraper with known page URLs (not keyword search).
     # Defaults are seeded with major pharma + oncology pages in main.py.
     facebook_page_urls: Mapped[str | None] = mapped_column(Text)         # JSON list of FB page URLs
+    # Language filter for social scanning: "fr" = France only, "all" = global
+    social_lang_filter: Mapped[str] = mapped_column(String(8), default="fr")
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

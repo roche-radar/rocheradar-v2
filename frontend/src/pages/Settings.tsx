@@ -455,6 +455,26 @@ function SocialScanCard({ form, set, apifyConfigured }: {
         <Toggle value={!!form.social_include_kols} onChange={v => set("social_include_kols", v)} />
       </div>
 
+      {/* Language / geography filter */}
+      <div className="flex items-center justify-between py-1">
+        <div>
+          <p className="text-sm font-medium">Geographic scope</p>
+          <p className="text-xs text-gray-400 dark:text-[#64748b]">
+            France only: filters posts by French language + applies <code>lang:fr</code> on X/Twitter.
+            Global: collects all languages.
+          </p>
+        </div>
+        <select
+          value={form.social_lang_filter ?? "fr"}
+          onChange={e => set("social_lang_filter", e.target.value)}
+          className="px-3 py-1.5 text-sm border border-gray-200 dark:border-[#1e3a5f] rounded-lg bg-transparent"
+        >
+          <option value="fr">France only (French)</option>
+          <option value="en">English only</option>
+          <option value="all">Global (all languages)</option>
+        </select>
+      </div>
+
       {/* Schedule */}
       <div className="pt-1 border-t border-gray-100 dark:border-[#1e3a5f]/50">
         <div className="flex items-center justify-between py-1">

@@ -134,6 +134,7 @@ async def _run_scan() -> dict:
         max_per_query = s.social_max_per_query if s else 30
         include_kols = s.social_include_kols if s else True
         fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
+        lang_filter = getattr(s, "social_lang_filter", "fr") or "fr"
 
         # List of (search_term, platform_hint) for KOL scanning.
         # Prefer twitter_handle over name for Twitter (more precise); name is used as fallback.
@@ -207,6 +208,12 @@ async def _run_scan() -> dict:
             if not _is_pharma_relevant(post):
                 logger.debug("social_scan.filtered_irrelevant", platform=post.get("platform"), url=post.get("post_url", "")[:80])
                 continue
+            # Language filter — skip posts that don't match configured language
+            if lang_filter and lang_filter != "all":
+                post_lang = _detect_lang(post.get("text", ""))
+                if post_lang != lang_filter:
+                    logger.debug("social_scan.filtered_lang", lang=post_lang, wanted=lang_filter, url=post.get("post_url", "")[:80])
+                    continue
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"],
@@ -350,6 +357,7 @@ async def _run_discover(query: str) -> dict:
             ["instagram", "twitter", "linkedin", "facebook"]
         window = s.social_window_days if s else 180
         fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
+        lang_filter = getattr(s, "social_lang_filter", "fr") or "fr"
 
     loop = asyncio.get_running_loop()
 
@@ -369,6 +377,7 @@ async def _run_discover(query: str) -> dict:
                 p, hashtags, keywords,
                 max_results=30, window_days=window,
                 page_urls=fb_page_urls if p == "facebook" else None,
+                lang_filter=lang_filter,
             ),
         )
 

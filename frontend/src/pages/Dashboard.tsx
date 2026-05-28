@@ -141,18 +141,6 @@ export default function Dashboard() {
     onSuccess: (data) => qc.setQueryData(["social-brief"], data),
   });
 
-  const { data: compBrief, isLoading: compBriefLoading } = useQuery({
-    queryKey: ["comparison-brief"],
-    queryFn: () => api.comparisonBrief(),
-    staleTime: 6 * 60 * 60 * 1000,
-    retry: false,
-  });
-  const compBriefMut = useMutation({
-    mutationFn: () => api.comparisonBrief(true),
-    onSuccess: (data) => qc.setQueryData(["comparison-brief"], data),
-  });
-  const [selectedCompPoint, setSelectedCompPoint] = useState<string | null>(null);
-
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
     onSuccess: (d) => { setActiveRunId(d.run_id); qc.invalidateQueries({ queryKey: ["current-run"] }); },
@@ -801,9 +789,6 @@ export default function Dashboard() {
       )}
       {selectedSocialPoint && (
         <SocialDetailModal point={selectedSocialPoint} onClose={() => setSelectedSocialPoint(null)}/>
-      )}
-      {selectedCompPoint && (
-        <BriefDetailModal point={selectedCompPoint} onClose={() => setSelectedCompPoint(null)}/>
       )}
     </>
     </>

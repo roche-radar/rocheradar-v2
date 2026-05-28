@@ -119,41 +119,30 @@ async def _seed_defaults() -> None:
         # (keyword search doesn't work on FB without auth; page-URL scraping does).
         if s and not s.facebook_page_urls:
             default_fb_pages = [
-                # Roche / Genentech
+                # Roche France + global
                 "https://www.facebook.com/roche",
-                "https://www.facebook.com/Genentech",
-                # Major pharma companies
-                "https://www.facebook.com/Novartis",
-                "https://www.facebook.com/pfizer",
+                "https://www.facebook.com/RocheFrance",
+                # French pharma & health institutions
+                "https://www.facebook.com/sanofi",
+                "https://www.facebook.com/INCa.Institut.National.Cancer",  # Institut National du Cancer
+                "https://www.facebook.com/liguecancerfrance",               # Ligue contre le cancer
+                "https://www.facebook.com/fondationARC",                    # ARC cancer research
+                "https://www.facebook.com/unicancer.fr",                    # Unicancer
+                "https://www.facebook.com/inserm.fr",                       # INSERM
+                "https://www.facebook.com/has.sante",                       # HAS (French health authority)
+                "https://www.facebook.com/ansm.sante.fr",                   # ANSM (French medicines agency)
+                # French patient communities
+                "https://www.facebook.com/RespirEspoir",                    # Lung cancer France
+                "https://www.facebook.com/Cancer.Info.Service",
+                # Global pharma (for competitive intelligence)
                 "https://www.facebook.com/AstraZenecaGlobal",
                 "https://www.facebook.com/BristolMyersSquibb",
                 "https://www.facebook.com/merck",
-                "https://www.facebook.com/bayer",
-                "https://www.facebook.com/sanofi",
-                "https://www.facebook.com/abbvie",
                 "https://www.facebook.com/LillyOncology",
-                "https://www.facebook.com/amgen",
-                "https://www.facebook.com/GileadSciences",
-                "https://www.facebook.com/regeneron",
-                "https://www.facebook.com/JanssenGlobal",
-                # Oncology congresses & organisations
+                # Oncology congresses
                 "https://www.facebook.com/ASCO.org",
                 "https://www.facebook.com/esmo.oncology",
-                "https://www.facebook.com/AACRcancer",
-                # Cancer patient communities
-                "https://www.facebook.com/AmericanCancerSociety",
-                "https://www.facebook.com/CancerResearchUK",
-                "https://www.facebook.com/LUNGevity",
-                "https://www.facebook.com/LLS",         # Leukemia & Lymphoma Society
-                "https://www.facebook.com/IMFmyeloma",  # Multiple Myeloma
-                "https://www.facebook.com/breastcancer.org",
-                # Neurology / rare disease
-                "https://www.facebook.com/nationalMSsociety",
-                "https://www.facebook.com/alzassociation",
-                "https://www.facebook.com/NationalHemophiliaFoundation",
-                # Health agencies
-                "https://www.facebook.com/NIH.gov",
-                "https://www.facebook.com/FDA",
+                # WHO / global health
                 "https://www.facebook.com/WHO",
             ]
             s.facebook_page_urls = json.dumps(default_fb_pages)

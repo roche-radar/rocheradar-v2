@@ -88,6 +88,7 @@ export interface AppSettings {
   social_include_kols: boolean;
   facebook_page_urls: string[];
   apify_configured: boolean;
+  social_lang_filter: string;
 }
 
 export interface SocialPost {
