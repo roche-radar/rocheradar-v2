@@ -1,7 +1,19 @@
-"""012 — language on social_posts & discovery_results; llm_description on discovery_results"""
+"""Add language to social_posts & discovery_results; llm_description to discovery_results
+
+Revision ID: 012
+Revises: 011
+Create Date: 2026-05-28
+
+Idempotent — guarded by inspector check.
+"""
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.engine.reflection import Inspector
+
+revision = "012"
+down_revision = "011"
+branch_labels = None
+depends_on = None
 
 
 def _col_exists(table: str, col: str) -> bool:
