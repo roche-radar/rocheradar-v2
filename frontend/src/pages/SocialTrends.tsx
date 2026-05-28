@@ -243,13 +243,16 @@ export default function SocialTrends() {
   // Platform counts on the current non-platform-filtered set (shows how many each platform has)
   const platformCounts = useMemo(() => {
     let base = [...allPosts];
-    if (kind !== "all")   base = base.filter(p => p.kind === kind);
-    if (minLikes > 0)     base = base.filter(p => (p.likes ?? 0) >= minLikes);
+    if (kind !== "all")      base = base.filter(p => p.kind === kind);
+    if (minLikes > 0)        base = base.filter(p => (p.likes ?? 0) >= minLikes);
+    if (language !== "all")  base = base.filter(p => p.language === language);
+    if (fromDate)            base = base.filter(p => p.posted_at && p.posted_at >= fromDate);
+    if (toDate)              base = base.filter(p => p.posted_at && p.posted_at <= toDate + "T23:59:59Z");
     base = base.filter(p => !p.posted_at || p.posted_at >= cutoff);
     const c: Record<string, number> = { all: base.length };
     for (const p of base) c[p.platform] = (c[p.platform] ?? 0) + 1;
     return c;
-  }, [allPosts, kind, minLikes, cutoff]);
+  }, [allPosts, kind, minLikes, language, fromDate, toDate, cutoff]);
 
   const searchPosts = searchData?.results ?? [];
   const isDefault = sortBy === DEFAULTS.sortBy && platform === DEFAULTS.platform &&
