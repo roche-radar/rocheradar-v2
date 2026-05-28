@@ -4,7 +4,7 @@ import { useHiddenRecents } from "@/lib/hiddenRecents";
 import {
   Search, RefreshCw, ExternalLink, Database, Globe,
   Youtube, FileText, Lock, AlertCircle, Play, X, BookOpen,
-  Video, TrendingUp, Clock, ChevronRight, Zap, Sparkles,
+  Video, TrendingUp, Clock, Zap, Sparkles,
   ChevronDown, ChevronUp, History, Star, MessageCircle, Linkedin,
   ScanSearch, Link2, FlaskConical
 } from "lucide-react";
