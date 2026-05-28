@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect } from "react";
-import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X, Sparkles, Loader2 } from "lucide-react";
+import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X, Sparkles, Loader2, ChevronRight } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -116,6 +116,42 @@ export default function Dashboard() {
     mutationFn: () => api.dailyBrief(true),
     onSuccess: (data) => qc.setQueryData(["daily-brief"], data),
   });
+  const [selectedPoint, setSelectedPoint] = useState<string | null>(null);
+  const [selectedSocialPoint, setSelectedSocialPoint] = useState<string | null>(null);
+
+  const { data: kolBrief, isLoading: kolBriefLoading } = useQuery({
+    queryKey: ["kol-brief"],
+    queryFn: () => api.kolBrief(),
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  });
+  const kolBriefMut = useMutation({
+    mutationFn: () => api.kolBrief(true),
+    onSuccess: (data) => qc.setQueryData(["kol-brief"], data),
+  });
+
+  const { data: socialBrief, isLoading: socialBriefLoading } = useQuery({
+    queryKey: ["social-brief"],
+    queryFn: () => api.socialBrief(),
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  });
+  const socialBriefMut = useMutation({
+    mutationFn: () => api.socialBrief(true),
+    onSuccess: (data) => qc.setQueryData(["social-brief"], data),
+  });
+
+  const { data: compBrief, isLoading: compBriefLoading } = useQuery({
+    queryKey: ["comparison-brief"],
+    queryFn: () => api.comparisonBrief(),
+    staleTime: 6 * 60 * 60 * 1000,
+    retry: false,
+  });
+  const compBriefMut = useMutation({
+    mutationFn: () => api.comparisonBrief(true),
+    onSuccess: (data) => qc.setQueryData(["comparison-brief"], data),
+  });
+  const [selectedCompPoint, setSelectedCompPoint] = useState<string | null>(null);
 
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
@@ -219,22 +255,24 @@ export default function Dashboard() {
         ) : brief && brief.points.length > 0 ? (
           <div className="space-y-2">
             {brief.points.map((p: DailyBriefPoint, i: number) => (
-              <div key={i} className={cn(
-                "flex items-start gap-3 p-3 rounded-xl border",
-                p.priority === "high"
-                  ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20"
-                  : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5"
-              )}>
+              <button key={i} onClick={() => setSelectedPoint(p.text)}
+                className={cn(
+                  "w-full text-left flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm group",
+                  p.priority === "high"
+                    ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20 hover:border-amber-400/50"
+                    : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5 hover:border-roche-blue/30"
+                )}>
                 <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
                   p.priority === "high" ? "bg-amber-500" : "bg-gray-300 dark:bg-slate-600")}/>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
                   <span className={cn("text-[10px] font-semibold mt-0.5 inline-block",
                     p.source === "kol" ? "text-blue-500" : p.source === "social" ? "text-orange-500" : "text-purple-500")}>
                     {p.source === "kol" ? "KOL insight" : p.source === "social" ? "Social trend" : "KOL + Social"}
                   </span>
                 </div>
-              </div>
+                <ChevronRight size={14} className="text-gray-300 group-hover:text-roche-blue shrink-0 mt-0.5 transition-colors"/>
+              </button>
             ))}
           </div>
         ) : brief?.error ? (
@@ -244,6 +282,132 @@ export default function Dashboard() {
             {brief && (brief.kol_count > 0 || brief.social_count > 0)
               ? "Click Generate to create the brief from existing data."
               : "No data yet — run a pipeline first, then click Generate."}
+          </p>
+        )}
+      </div>
+
+      {/* Social Trends Brief */}
+      <div className="glass rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+              <TrendingUp size={16} className="text-orange-500 dark:text-orange-400"/>
+            </div>
+            <div>
+              <h2 className="font-semibold text-sm">Social Trends Brief</h2>
+              <p className="text-xs text-gray-400">Sector-grouped signals from social media — 6-month window</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {socialBrief && socialBrief.total_posts > 0 && (
+              <span className="text-[10px] text-gray-400">{socialBrief.total_posts} posts · {socialBrief.sections?.length ?? 0} sectors</span>
+            )}
+            <button onClick={() => socialBriefMut.mutate()} disabled={socialBriefMut.isPending || socialBriefLoading}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-orange-300 dark:border-orange-800 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors">
+              {socialBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+              Generate
+            </button>
+          </div>
+        </div>
+
+        {/* Top topics chips */}
+        {socialBrief?.top_topics && socialBrief.top_topics.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {socialBrief.top_topics.slice(0,8).map((t, i) => (
+              <span key={i} className="px-2 py-0.5 text-[10px] font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-full border border-orange-200/50 dark:border-orange-800/30">
+                {t.topic} <span className="opacity-60">({t.count})</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {socialBriefLoading || socialBriefMut.isPending ? (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Loader2 size={14} className="animate-spin"/>Analysing {socialBrief?.total_posts ?? ""} posts across sectors…
+          </div>
+        ) : socialBrief?.sections && socialBrief.sections.length > 0 ? (
+          <div className="space-y-4">
+            {socialBrief.sections.map((sec, si) => (
+              <div key={si}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-orange-500">{sec.sector}</span>
+                  {sec.key_signal && <span className="text-[10px] text-gray-400 italic">— {sec.key_signal}</span>}
+                </div>
+                <div className="space-y-1.5 pl-2 border-l-2 border-orange-200/50 dark:border-orange-800/30">
+                  {sec.points.map((p, i) => (
+                    <button key={i} onClick={() => setSelectedSocialPoint(p.text)}
+                      className="w-full text-left flex items-start gap-3 p-2.5 rounded-lg border border-slate-200/50 dark:border-white/5 bg-gray-50/40 dark:bg-[#0d1424]/30 hover:border-orange-300/50 hover:shadow-sm transition-all group cursor-pointer">
+                      <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", p.priority === "high" ? "bg-orange-500" : "bg-gray-300 dark:bg-slate-600")}/>
+                      <p className="flex-1 text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
+                      <ChevronRight size={13} className="text-gray-300 group-hover:text-orange-500 shrink-0 mt-0.5 transition-colors"/>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : socialBrief?.error ? (
+          <p className="text-xs text-red-400">Error: {socialBrief.error}</p>
+        ) : (
+          <p className="text-sm text-gray-400">
+            {socialBrief && socialBrief.total_posts > 0
+              ? "Click Generate to analyse social trends by sector."
+              : "No social posts yet — run a social scan first."}
+          </p>
+        )}
+      </div>
+
+      {/* KOL Intelligence Brief */}
+      <div className="glass rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <Users size={16} className="text-blue-600 dark:text-blue-400"/>
+            </div>
+            <div>
+              <h2 className="font-semibold text-sm">KOL Intelligence Brief</h2>
+              <p className="text-xs text-gray-400">Key insights from monitored KOL statements — last 6 months</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {kolBrief && kolBrief.kol_count > 0 && (
+              <span className="text-[10px] text-gray-400">{kolBrief.kol_count} insights analysed</span>
+            )}
+            <button onClick={() => kolBriefMut.mutate()} disabled={kolBriefMut.isPending || kolBriefLoading}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition-colors">
+              {kolBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+              Generate
+            </button>
+          </div>
+        </div>
+        {kolBriefLoading || kolBriefMut.isPending ? (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Loader2 size={14} className="animate-spin"/>Analysing KOL insights…
+          </div>
+        ) : kolBrief && kolBrief.points.length > 0 ? (
+          <div className="space-y-2">
+            {kolBrief.points.map((p, i) => (
+              <button key={i} onClick={() => setSelectedPoint(p.text)}
+                className={cn(
+                  "w-full text-left flex items-start gap-3 p-3 rounded-xl border transition-all group cursor-pointer hover:shadow-sm",
+                  p.priority === "high"
+                    ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20 hover:border-amber-400/50"
+                    : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5 hover:border-blue-300/50"
+                )}>
+                <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", p.priority === "high" ? "bg-amber-500" : "bg-blue-400")}/>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
+                  <span className="text-[10px] font-semibold mt-0.5 inline-block text-blue-500">KOL insight</span>
+                </div>
+                <ChevronRight size={14} className="text-gray-300 group-hover:text-blue-500 shrink-0 mt-0.5 transition-colors"/>
+              </button>
+            ))}
+          </div>
+        ) : kolBrief?.error ? (
+          <p className="text-xs text-red-400">Error: {kolBrief.error}</p>
+        ) : (
+          <p className="text-sm text-gray-400">
+            {kolBrief && kolBrief.kol_count > 0 ? "Click Generate to create KOL brief." : "No KOL insights yet — run a pipeline first."}
           </p>
         )}
       </div>
@@ -631,7 +795,137 @@ export default function Dashboard() {
         </div>
       </div>
     )}
+    <>
+      {selectedPoint && (
+        <BriefDetailModal point={selectedPoint} onClose={() => setSelectedPoint(null)}/>
+      )}
+      {selectedSocialPoint && (
+        <SocialDetailModal point={selectedSocialPoint} onClose={() => setSelectedSocialPoint(null)}/>
+      )}
+      {selectedCompPoint && (
+        <BriefDetailModal point={selectedCompPoint} onClose={() => setSelectedCompPoint(null)}/>
+      )}
     </>
+    </>
+  );
+}
+
+function BriefDetailModal({ point, onClose }: { point: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["brief-detail", point],
+    queryFn: () => api.briefDetail(point),
+    staleTime: Infinity,
+  });
+
+  const SENT_COLOR: Record<string, string> = {
+    positive: "text-emerald-600 dark:text-emerald-400",
+    negative: "text-red-500 dark:text-red-400",
+    neutral:  "text-gray-500 dark:text-slate-400",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative w-full max-w-lg bg-white dark:bg-[#0d1424] border-l border-slate-200 dark:border-white/10 flex flex-col shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 py-4 border-b border-slate-200/50 dark:border-white/10 flex-none">
+          <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg shrink-0 mt-0.5">
+            <Sparkles size={14} className="text-amber-600 dark:text-amber-400"/>
+          </div>
+          <p className="flex-1 text-sm font-semibold text-gray-900 dark:text-white leading-snug">{point}</p>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#1e3a5f]/40 rounded-lg text-gray-400 shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[85,60,75,50].map((w,i) => <div key={i} className="h-4 rounded bg-gray-100 dark:bg-[#1e3a5f]/40 animate-pulse" style={{width:`${w}%`}}/>)}
+            </div>
+          ) : data ? (
+            <>
+              {/* Summary */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Summary</p>
+                <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.summary}</p>
+              </div>
+
+              {/* So what */}
+              {data.so_what && (
+                <div className="bg-roche-blue/5 dark:bg-roche-blue/10 rounded-xl p-4 border border-roche-blue/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-roche-blue mb-2">So what for Roche?</p>
+                  <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.so_what}</p>
+                </div>
+              )}
+
+              {/* Action */}
+              {data.action && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-4 border border-amber-200/50 dark:border-amber-800/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-2">Recommended Action</p>
+                  <p className="text-sm text-gray-700 dark:text-[#cbd5e1]">{data.action}</p>
+                </div>
+              )}
+
+              {/* KOL evidence */}
+              {data.kol_insights.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">KOL Evidence</p>
+                  <div className="space-y-2">
+                    {data.kol_insights.map((k, i) => (
+                      <div key={i} className="glass-panel rounded-lg p-3 border border-slate-200/50 dark:border-white/5">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-roche-blue">{k.kol}</span>
+                          {k.topic && <span className="text-[10px] text-gray-400">· {k.topic}</span>}
+                          {k.sentiment && <span className={cn("text-[10px] font-medium ml-auto", SENT_COLOR[k.sentiment] || SENT_COLOR.neutral)}>{k.sentiment}</span>}
+                        </div>
+                        <p className="text-xs text-gray-600 dark:text-[#94a3b8] italic">"{k.said}"</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Social evidence */}
+              {data.social_posts.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Social Evidence</p>
+                  <div className="space-y-2">
+                    {data.social_posts.map((s, i) => (
+                      <a key={i} href={s.url} target="_blank" rel="noreferrer"
+                        className="flex items-start gap-2 glass-panel rounded-lg p-3 border border-slate-200/50 dark:border-white/5 hover:border-orange-300/50 transition-colors group">
+                        <span className="text-[10px] font-bold text-orange-500 uppercase shrink-0 mt-0.5">{s.platform}</span>
+                        <p className="text-xs text-gray-600 dark:text-[#94a3b8] flex-1 line-clamp-2">{s.text}</p>
+                        <span className="text-[10px] text-gray-400 shrink-0">♥ {s.likes}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Links */}
+              {data.links.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Related Sources</p>
+                  <div className="space-y-1.5">
+                    {data.links.map((l, i) => (
+                      <a key={i} href={l.url} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-2 text-xs text-roche-blue hover:underline">
+                        <ExternalLink size={10} className="shrink-0"/>
+                        <span className="truncate">{l.title}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Failed to load details.</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -679,6 +973,136 @@ function InsightCard({ insight, onClick }: { insight: Insight; onClick: () => vo
             {sourceName ? <span className="max-w-[160px] truncate">{sourceName}</span> : "Source"}
           </a>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SocialDetailModal({ point, onClose }: { point: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["social-detail", point],
+    queryFn: () => api.socialDetail(point),
+    staleTime: Infinity,
+  });
+
+  const PLATFORM_COLOR: Record<string, string> = {
+    instagram: "text-pink-500 bg-pink-50 dark:bg-pink-900/20",
+    twitter:   "text-sky-500 bg-sky-50 dark:bg-sky-900/20",
+    linkedin:  "text-blue-600 bg-blue-50 dark:bg-blue-900/20",
+    facebook:  "text-blue-500 bg-blue-50 dark:bg-blue-900/20",
+  };
+  const URGENCY_COLOR: Record<string, string> = {
+    high: "bg-red-100 text-red-600 dark:bg-red-900/20 dark:text-red-400",
+    medium: "bg-amber-100 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400",
+    low: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative w-full max-w-lg bg-white dark:bg-[#0d1424] border-l border-slate-200 dark:border-white/10 flex flex-col shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 py-4 border-b border-slate-200/50 dark:border-white/10 flex-none">
+          <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg shrink-0 mt-0.5">
+            <TrendingUp size={14} className="text-orange-500"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">{point}</p>
+            {data && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", URGENCY_COLOR[data.urgency] || URGENCY_COLOR.medium)}>
+                  {data.urgency?.toUpperCase()} URGENCY
+                </span>
+                <span className="text-[10px] text-gray-400">♥ {data.total_likes} · 💬 {data.total_comments}</span>
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#1e3a5f]/40 rounded-lg text-gray-400 shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[85,60,75,50,90].map((w,i) => <div key={i} className="h-4 rounded bg-gray-100 dark:bg-[#1e3a5f]/40 animate-pulse" style={{width:`${w}%`}}/>)}
+            </div>
+          ) : data ? (
+            <>
+              {/* Platform breakdown */}
+              {Object.keys(data.platform_stats).length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {Object.entries(data.platform_stats).map(([plt, stats]) => (
+                    <div key={plt} className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold", PLATFORM_COLOR[plt] || "text-gray-500 bg-gray-100")}>
+                      <span className="uppercase">{plt}</span>
+                      <span className="opacity-70">{stats.count} posts · ♥{stats.likes}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hashtags */}
+              {data.hashtags && data.hashtags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {data.hashtags.map((h, i) => (
+                    <span key={i} className="text-[11px] px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded-full border border-orange-200/50">
+                      #{h.replace(/^#/, "")}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Summary */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Trend Analysis</p>
+                <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.summary}</p>
+              </div>
+
+              {/* So what */}
+              {data.so_what && (
+                <div className="bg-orange-50/60 dark:bg-orange-900/10 rounded-xl p-4 border border-orange-200/50 dark:border-orange-800/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-orange-600 mb-2">So what for Roche?</p>
+                  <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.so_what}</p>
+                </div>
+              )}
+
+              {/* Action */}
+              {data.action && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-4 border border-amber-200/50 dark:border-amber-800/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-2">Recommended Actions</p>
+                  <p className="text-sm text-gray-700 dark:text-[#cbd5e1]">{data.action}</p>
+                </div>
+              )}
+
+              {/* Posts */}
+              {data.posts.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Supporting Posts ({data.posts.length})</p>
+                  <div className="space-y-2">
+                    {data.posts.map((p, i) => (
+                      <a key={i} href={p.url} target="_blank" rel="noreferrer"
+                        className="flex items-start gap-2 glass-panel rounded-lg p-3 border border-slate-200/50 dark:border-white/5 hover:border-orange-300/50 transition-colors group">
+                        <span className={cn("text-[9px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 mt-0.5", (PLATFORM_COLOR[p.platform] || "text-gray-500 bg-gray-100").split(" ").slice(0,2).join(" "))}>{p.platform}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-600 dark:text-[#94a3b8] line-clamp-3">{p.text}</p>
+                          {p.topic && <span className="text-[10px] text-gray-400 mt-0.5 block">{p.topic}</span>}
+                          {p.posted_at && <span className="text-[9px] text-gray-300 dark:text-gray-600">{p.posted_at.slice(0,10)}</span>}
+                        </div>
+                        <div className="text-right shrink-0 space-y-0.5">
+                          <div className="text-[10px] text-gray-400">♥ {p.likes}</div>
+                          <div className="text-[10px] text-gray-400">💬 {p.comments}</div>
+                          {p.shares > 0 && <div className="text-[10px] text-gray-400">↗ {p.shares}</div>}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Failed to load details.</p>
+          )}
+        </div>
       </div>
     </div>
   );

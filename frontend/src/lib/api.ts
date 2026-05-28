@@ -207,6 +207,44 @@ export interface TopicsData {
 export const api = {
   stats: () => req<Stats>("/stats"),
   dailyBrief: (refresh = false) => req<DailyBrief>(`/stats/daily-brief${refresh ? "?refresh=true" : ""}`),
+  kolBrief: (refresh = false) => req<{
+    points: DailyBriefPoint[];
+    kol_count: number;
+    social_count: number;
+    generated_at: string | null;
+    cached: boolean;
+    error?: string | null;
+  }>(`/stats/kol-brief${refresh ? "?refresh=true" : ""}`),
+  comparisonBrief: (refresh = false) => req<{
+    points: DailyBriefPoint[];
+    kol_count: number;
+    social_count: number;
+    generated_at: string | null;
+    cached: boolean;
+    error?: string | null;
+  }>(`/stats/comparison-brief${refresh ? "?refresh=true" : ""}`),
+  socialBrief: (refresh = false) => req<{
+    sections: { sector: string; key_signal: string; points: DailyBriefPoint[] }[];
+    points: DailyBriefPoint[];
+    total_posts: number;
+    top_topics: { topic: string; count: number; engagement: number }[];
+    generated_at: string | null;
+    cached: boolean;
+    error?: string | null;
+  }>(`/stats/social-brief${refresh ? "?refresh=true" : ""}`),
+  socialDetail: (point: string) => req<{
+    point: string; summary: string; so_what: string; action: string;
+    urgency: string; hashtags: string[];
+    total_likes: number; total_comments: number;
+    platform_stats: Record<string, { count: number; likes: number; comments: number }>;
+    posts: { platform: string; text: string; likes: number; comments: number; shares: number; url: string; topic: string | null; posted_at: string | null }[];
+  }>("/stats/social-detail", { method: "POST", body: JSON.stringify({ point }) }),
+  briefDetail: (point: string) => req<{
+    point: string; summary: string; so_what: string; action: string;
+    kol_insights: { kol: string; topic: string | null; said: string; sentiment: string | null }[];
+    social_posts: { platform: string; text: string; likes: number; url: string }[];
+    links: { url: string; title: string }[];
+  }>("/stats/brief-detail", { method: "POST", body: JSON.stringify({ point }) }),
   topics: (days = 7, diseaseArea?: string) => req<TopicsData>(`/stats/topics?days=${days}${diseaseArea && diseaseArea !== "all" ? `&disease_area=${diseaseArea}` : ""}`),
 
   targets: {
