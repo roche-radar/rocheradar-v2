@@ -57,11 +57,16 @@ async def _check() -> None:
             logger.info("scheduler.skip_already_ran_recently")
             return
 
-    dow_name = _DOW_NAMES[getattr(s, "cron_day_of_week", 1) or 1]
+        # Capture to locals before session closes — avoids DetachedInstanceError
+        cron_hour = s.cron_hour
+        cron_minute = s.cron_minute
+        cron_dow = getattr(s, "cron_day_of_week", 1) or 1
+
+    dow_name = _DOW_NAMES[cron_dow]
     logger.info("scheduler.triggering",
                 frequency=frequency,
                 day=dow_name if frequency == "weekly" else "every day",
-                hour=s.cron_hour, minute=s.cron_minute)
+                hour=cron_hour, minute=cron_minute)
 
     import httpx
     try:

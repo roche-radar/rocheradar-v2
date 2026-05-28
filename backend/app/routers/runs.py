@@ -238,15 +238,17 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
     import os
     from app.models import ExtractedInsight, PersonSummary, ScrapedPost, AgentMessage
     from app.models.discovery_result import DiscoveryResult
+    from app.models.social_post import SocialPost
     from app.config import get_settings
 
-    # 1. DB: delete in FK-safe order — all operational + discovery + chat
+    # 1. DB: delete in FK-safe order — all operational + discovery + chat + social
     await db.execute(delete(ExtractedInsight))
     await db.execute(delete(PersonSummary))
     await db.execute(delete(ScrapedPost))
     await db.execute(delete(RunLog))
     await db.execute(delete(AgentMessage))
     await db.execute(delete(DiscoveryResult))
+    await db.execute(delete(SocialPost))
     await db.commit()
 
     # 2. Vercel Blob: delete all reports/ blobs
@@ -279,15 +281,7 @@ async def reset_all(db: AsyncSession = Depends(get_db)):
         except Exception as exc:
             pass  # non-fatal — DB is already clean
 
-    # 3. Revoke all in-flight Celery tasks before wiping Redis
-    try:
-        from app.tasks.celery_app import celery_app as _celery
-        _celery.control.revoke([], terminate=True, signal="SIGTERM")  # broadcast to all workers
-        import time; time.sleep(0.5)  # brief pause for workers to acknowledge
-    except Exception:
-        pass
-
-    # 4. Redis: flush ALL databases (DB0=app, DB1=Celery broker, DB2=Celery results)
+    # 3. Redis: flush ALL databases (DB0=app, DB1=Celery broker, DB2=Celery results)
     redis_reset = False
     try:
         import redis as _redis
