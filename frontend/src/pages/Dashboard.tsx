@@ -9,6 +9,7 @@ import { api, type Insight, type DailyBriefPoint } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import SocialTrendsSummary from "./SocialTrendsSummary";
+import { SynthesisPanel } from "@/components/SynthesisPanel";
 
 const PIE_COLORS = ["#0066cc", "#0ea5e9", "#14b8a6", "#f59e0b", "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e"];
 const ROCHE_BLUE = "#0066cc";
@@ -150,6 +151,12 @@ export default function Dashboard() {
     onSuccess: (data) => qc.setQueryData(["social-brief"], data),
   });
 
+  // On-demand AI synthesis over the WHOLE DB (KOL + social) — always produces output
+  const synthMut = useMutation({
+    mutationFn: (refresh: boolean) => api.combinedSynthesis(refresh),
+  });
+  const synth = synthMut.data;
+
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
     onSuccess: (d) => { setActiveRunId(d.run_id); qc.invalidateQueries({ queryKey: ["current-run"] }); },
@@ -282,6 +289,38 @@ export default function Dashboard() {
           </p>
         )}
       </div>
+
+      {/* AI Synthesis & takeaway — whole-DB (KOL + social) */}
+      <SynthesisPanel
+        accent="orange"
+        takeaway={synth?.takeaway}
+        takeawayLabel="What's happening"
+        soWhat={synth?.so_what}
+        conclusion={synth?.conclusion}
+        conclusionLabel="The bottom line"
+        generatedAt={synth?.generated_at}
+        cached={synth?.cached}
+        error={synth?.error}
+        isLoading={synthMut.isPending}
+        isError={synthMut.isError}
+        hasRun={!!synth}
+        onGenerate={() => synthMut.mutate(!!synth)}
+        picks={synth?.focus && synth.focus.length > 0 ? (
+          <div>
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              <Sparkles size={11} className="text-orange-500" /> What to focus on
+            </p>
+            <ul className="space-y-1.5">
+              {synth.focus.map((f, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-[#e2e8f0]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 shrink-0" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : undefined}
+      />
 
       {/* Social Trends Brief */}
       <div className="glass rounded-xl p-5">

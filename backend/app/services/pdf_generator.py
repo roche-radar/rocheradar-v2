@@ -602,6 +602,9 @@ class PDFService:
         # Cross-KOL analytics — placed right after the header on page 1
         cross_analytics = _build_analytics_section(all_insights) if all_insights else ""
 
+        # Executive synthesis (LLM) — takeaway + so-what + most impactful findings
+        synth_html = self._build_synthesis_html(all_insights)
+
         html_doc = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
@@ -614,6 +617,14 @@ class PDFService:
 .empty-kols .lab {{ font-size: 11px; color: #94a3b8; margin-bottom: 8px; }}
 .empty-kols ul {{ columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; }}
 .empty-kols li {{ font-size: 12px; color: #475569; margin-bottom: 3px; break-inside: avoid; }}
+.synthesis {{ margin-bottom: 22px; padding: 14px 16px; border: 1px solid #c7d2e6; border-radius: 8px; background: #f5f8fc; page-break-inside: avoid; }}
+.synthesis h2 {{ font-size: 14px; color: #1a3a5f; margin: 0 0 8px; }}
+.synthesis .lab {{ font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin: 10px 0 3px; }}
+.synthesis p {{ font-size: 12px; color: #334155; margin: 0 0 4px; line-height: 1.5; }}
+.synthesis .sowhat {{ background: #eaf1fb; border-left: 3px solid #2563eb; padding: 8px 10px; border-radius: 4px; margin-top: 6px; }}
+.synthesis ul {{ margin: 4px 0 0; padding-left: 16px; }}
+.synthesis li {{ font-size: 12px; color: #334155; margin-bottom: 4px; }}
+.synthesis li b {{ color: #1a3a5f; }}
 </style>
 </head><body>
 <div class="header">
@@ -626,6 +637,8 @@ class PDFService:
     <strong>Categories:</strong> {_html.escape(cats_str)}
   </div>
 </div>
+
+{synth_html}
 
 {cross_analytics}
 
@@ -663,3 +676,68 @@ class PDFService:
             result["vercel_url"] = vercel_url
         logger.info("pdf.daily_generated", path=str(pdf_path), insights=total_insights)
         return result
+
+    def _build_synthesis_html(self, all_insights: list) -> str:
+        """LLM executive synthesis for the daily PDF: takeaway + so-what + most
+        impactful findings. Best-effort — returns '' on any failure so the PDF
+        still generates. One LLM call per run."""
+        if not all_insights:
+            return ""
+        try:
+            from app.services.llm_router import call_pro
+            from app.services.synthesizer import parse_synthesis
+
+            ranked = sorted(all_insights, key=lambda r: _insight_rank(r[0]))[:40]
+            listing = "\n".join(
+                f"[{ins.id}] ({tgt.name}, {ins.sentiment}) {ins.topic}: "
+                f"{(ins.what_they_said or '')[:200]}"
+                for ins, _post, tgt in ranked
+            )
+            prompt = (
+                "You are a senior pharma intelligence analyst for Roche France.\n"
+                f"Below are this week's {len(ranked)} most important KOL findings "
+                "(each prefixed with its [id]).\n\n"
+                f"{listing}\n\n"
+                "Write a concise executive synthesis. Use EXACTLY this format with these markers:\n"
+                "##TAKEAWAY##\n"
+                "3-5 sentences: the key themes across your KOLs this week, notable shifts, "
+                "drug or competitor mentions, sentiment.\n"
+                "##SO_WHAT##\n"
+                "2-3 sentences on what this means for Roche France and what to act on.\n"
+                "##PICKS##\n"
+                "The 3-5 most impactful findings. One per line, format: [id] one-sentence why it matters. "
+                "Use the real [id] values above.\n\n"
+                "Reference real drug names and KOLs. Be specific."
+            )
+            raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1200)
+            parsed = parse_synthesis(raw)
+        except Exception as exc:
+            logger.warning("pdf.synthesis_failed", error=str(exc))
+            return ""
+
+        if not parsed["takeaway"] and not parsed["picks"]:
+            return ""
+
+        ins_by_id = {ins.id: (ins, tgt) for ins, _post, tgt in all_insights}
+        parts = ['<div class="synthesis"><h2>Synthesis &amp; takeaway</h2>']
+        if parsed["takeaway"]:
+            parts.append(f'<div class="lab">Takeaway</div><p>{_html.escape(parsed["takeaway"])}</p>')
+        if parsed["so_what"]:
+            parts.append(
+                f'<div class="lab">So what for Roche?</div>'
+                f'<div class="sowhat"><p>{_html.escape(parsed["so_what"])}</p></div>'
+            )
+        pick_lis = ""
+        for pick in parsed["picks"][:5]:
+            row = ins_by_id.get(pick["id"])
+            if not row:
+                continue
+            ins, tgt = row
+            pick_lis += (
+                f'<li><b>{_html.escape(tgt.name)} — {_html.escape(ins.topic or "")}:</b> '
+                f'{_html.escape(pick["why"])}</li>'
+            )
+        if pick_lis:
+            parts.append(f'<div class="lab">Most impactful findings</div><ul>{pick_lis}</ul>')
+        parts.append('</div>')
+        return "".join(parts)

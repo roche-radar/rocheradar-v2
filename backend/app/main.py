@@ -438,17 +438,19 @@ async def daily_brief(refresh: bool = False):
     prompt = (
         "You are a senior pharma intelligence analyst for Roche's oncology strategy team.\n\n"
         "Below are real KOL statements and top social media posts from the last 6 months.\n"
-        "Generate 5 sharp, SPECIFIC intelligence points combining both KOL and social signals.\n\n"
+        "Generate sharp, SPECIFIC intelligence points combining both KOL and social signals — "
+        "AT LEAST 3 points, up to 5.\n\n"
         "Rules:\n"
         "- Mention actual drug names, KOL names, or specific data when available\n"
         "- Each point must be actionable: what should Roche watch, do, or address?\n"
         "- Flag competitive threats or unmet needs explicitly\n"
         "- Do NOT write generic statements — trace every point back to the data\n"
-        "- Each point max 30 words\n\n"
+        "- Each point max 30 words\n"
+        "- You MUST return a minimum of 3 points even if signals are sparse\n\n"
         f"KOL STATEMENTS ({len(insights)}):\n{insights_text}\n\n"
         f"TOP SOCIAL POSTS ({len(social_posts)}):\n{social_text}\n\n"
-        "Return ONLY a JSON array of 5 strings. No markdown:\n"
-        '["point 1", "point 2", "point 3", "point 4", "point 5"]'
+        "Return ONLY a JSON array of at least 3 (up to 5) strings. No markdown:\n"
+        '["point 1", "point 2", "point 3"]'
     )
 
     llm_error = None
@@ -790,16 +792,18 @@ async def kol_brief(refresh: bool = False):
     prompt = (
         "You are a senior pharma intelligence analyst for Roche's oncology strategy team.\n\n"
         f"Below are {len(insights)} real KOL statements from the last 6 months.\n"
-        "Generate 5 sharp, SPECIFIC intelligence points based ONLY on what these KOLs said.\n\n"
+        "Generate sharp, SPECIFIC intelligence points based ONLY on what these KOLs said — "
+        "AT LEAST 3 points, up to 5.\n\n"
         "Rules:\n"
         "- Quote actual KOL names and drug names from the data\n"
         "- Every point must be actionable for Roche's strategy\n"
         "- Flag competitive threats, unmet needs, or sentiment shifts explicitly\n"
         "- Do NOT write generic statements — trace every point back to a specific KOL\n"
-        "- Each point max 30 words\n\n"
+        "- Each point max 30 words\n"
+        "- You MUST return a minimum of 3 points even if signals are sparse\n\n"
         f"KOL STATEMENTS:\n{insights_text}\n\n"
-        "Return ONLY a JSON array of 5 strings. No markdown:\n"
-        '["point 1", "point 2", "point 3", "point 4", "point 5"]'
+        "Return ONLY a JSON array of at least 3 (up to 5) strings. No markdown:\n"
+        '["point 1", "point 2", "point 3"]'
     )
 
     llm_error = None
@@ -825,6 +829,143 @@ async def kol_brief(refresh: bool = False):
     }
     try:
         if r and points:
+            r.set(_KEY, _json.dumps(result), ex=21600)
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/api/stats/synthesis")
+async def combined_synthesis(refresh: bool = False):
+    """Holistic AI synthesis over the WHOLE database — KOL insights + social posts.
+
+    Always produces output as long as there's any data (does not require social
+    posts). Returns: what's happening, so what for Roche, the bottom-line
+    conclusion, and a short 'focus' list. Cached 6h.
+    """
+    import json as _json
+    from datetime import datetime, timezone, timedelta
+
+    _KEY = "combined_synth:v1"
+    r = None
+    try:
+        import redis as _redis
+        from app.config import get_settings as _gs
+        r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
+        if not refresh:
+            cached = r.get(_KEY)
+            if cached:
+                result = _json.loads(cached)
+                if isinstance(result, dict):
+                    result["cached"] = True
+                return result
+        else:
+            r.delete(_KEY)
+    except Exception:
+        r = None
+
+    from app.database import AsyncSessionLocal
+    from app.models import ExtractedInsight, Target, SocialPost
+    from sqlalchemy import select, desc
+
+    now = datetime.now(timezone.utc)
+    wide = now - timedelta(days=365)
+
+    async with AsyncSessionLocal() as sess:
+        ins_rows = await sess.execute(
+            select(ExtractedInsight, Target.name)
+            .join(Target, ExtractedInsight.target_id == Target.id)
+            .where(ExtractedInsight.extracted_at >= wide)
+            .order_by(desc(ExtractedInsight.extracted_at))
+            .limit(80)
+        )
+        insights = ins_rows.all()
+        # Fallback to all-time if the last year is empty
+        if not insights:
+            ins_rows = await sess.execute(
+                select(ExtractedInsight, Target.name)
+                .join(Target, ExtractedInsight.target_id == Target.id)
+                .order_by(desc(ExtractedInsight.extracted_at))
+                .limit(80)
+            )
+            insights = ins_rows.all()
+
+        social_rows = await sess.execute(
+            select(SocialPost)
+            .order_by(desc(SocialPost.likes + SocialPost.comments * 2 + SocialPost.shares * 1.5))
+            .limit(30)
+        )
+        social_posts = social_rows.scalars().all()
+
+    empty = {"takeaway": "", "so_what": "", "conclusion": "", "focus": [],
+             "kol_count": 0, "social_count": 0, "generated_at": None, "cached": False, "error": None}
+    if not insights and not social_posts:
+        empty["error"] = "No data in the database yet — run the pipeline or a social scan first."
+        return empty
+
+    insights_text = "\n".join(
+        f"- KOL:{name} | topic:{ins.topic} | sentiment:{ins.sentiment or 'neutral'} | "
+        f"said:\"{(ins.what_they_said or '')[:200]}\""
+        for ins, name in insights
+    ) or "(no KOL insights)"
+    social_text = "\n".join(
+        f"- [{p.platform},{p.likes}likes] topic:{p.topic or p.query} | \"{(p.text or '')[:140]}\""
+        for p in social_posts
+    ) or "(no social posts)"
+
+    from app.services.llm_router import call_pro
+    from app.services.synthesizer import extract_section, parse_bullets
+    import structlog as _sl
+    _log = _sl.get_logger("combined_synth")
+
+    prompt = (
+        "You are the senior pharma intelligence lead for Roche France.\n"
+        "Below is EVERYTHING currently in our intelligence database: monitored-KOL statements "
+        "and the top social-media posts. Some sections may be empty — work with whatever data exists.\n\n"
+        f"KOL STATEMENTS ({len(insights)}):\n{insights_text}\n\n"
+        f"TOP SOCIAL POSTS ({len(social_posts)}):\n{social_text}\n\n"
+        "Write a sharp executive synthesis. Use EXACTLY this format with these markers:\n"
+        "##TAKEAWAY##\n"
+        "3-5 sentences: what is happening right now across KOLs and social — themes, drug/competitor "
+        "mentions, sentiment, notable shifts.\n"
+        "##SO_WHAT##\n"
+        "2-3 sentences: so what for Roche France — implications, threats, opportunities.\n"
+        "##CONCLUSION##\n"
+        "2-3 sentences: the bottom line — the single most important thing Roche should focus on now.\n"
+        "##FOCUS##\n"
+        "3-5 concrete focus items, one per line starting with '- '. Each actionable and specific.\n\n"
+        "Reference real drug names, KOLs, hashtags. Never write generic filler — trace everything to the data."
+    )
+
+    err = None
+    takeaway = so_what = conclusion = ""
+    focus: list[str] = []
+    try:
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2000)
+        _log.info("combined_synth.llm_raw", raw=raw[:400])
+        takeaway = extract_section(raw, "TAKEAWAY")
+        so_what = extract_section(raw, "SO_WHAT")
+        conclusion = extract_section(raw, "CONCLUSION")
+        focus = parse_bullets(extract_section(raw, "FOCUS"))[:6]
+        if not takeaway and not focus:
+            err = f"Parse failed: {raw[:200]}"
+    except Exception as exc:
+        err = str(exc)[:300]
+        _log.warning("combined_synth.failed", exc=err)
+
+    result = {
+        "takeaway": takeaway,
+        "so_what": so_what,
+        "conclusion": conclusion,
+        "focus": focus,
+        "kol_count": len(insights),
+        "social_count": len(social_posts),
+        "generated_at": now.isoformat(),
+        "cached": False,
+        "error": err,
+    }
+    try:
+        if r and (takeaway or focus):
             r.set(_KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass

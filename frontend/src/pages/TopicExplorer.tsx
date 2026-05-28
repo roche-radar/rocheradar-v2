@@ -11,6 +11,7 @@ import {
 import { api, type DiscoveryResult, type DiscoveryContent, type KolInsight, type SocialPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DescribeModal as SocialDescribeModal } from "./SocialTrends";
+import { SynthesisPanel } from "@/components/SynthesisPanel";
 import { Flame, Heart } from "lucide-react";
 
 /* ─── constants ──────────────────────────────────────────── */
@@ -87,6 +88,12 @@ export default function TopicExplorer() {
       api.discovery.search(q, refresh, lang),
   });
 
+  // On-demand AI synthesis of everything found for the current query
+  const synthMut = useMutation({
+    mutationFn: (refresh: boolean) => api.discovery.synthesis(submitted, langFilter, refresh),
+  });
+  const synth = synthMut.data;
+
   const { data: kolData, isLoading: kolLoading } = useQuery({
     queryKey: ["kol-ment", submitted],
     queryFn: () => api.discovery.kolMentions(submitted),
@@ -130,6 +137,7 @@ export default function TopicExplorer() {
     const term = (q ?? query).trim();
     if (!term) return;
     setSubmitted(term); setQuery(term); setFilter("all");
+    synthMut.reset();
     searchMut.mutate({ q: term, refresh, lang: langFilter });
   }
 
@@ -348,6 +356,37 @@ export default function TopicExplorer() {
           {/* Results */}
           {!isLoading && submitted && (
             <div className="p-4 space-y-6">
+
+              {/* ── AI synthesis / takeaway ── */}
+              <SynthesisPanel
+                takeaway={synth?.takeaway}
+                takeawayLabel="What's happening"
+                soWhat={synth?.so_what}
+                conclusion={synth?.conclusion}
+                conclusionLabel="The bottom line"
+                generatedAt={synth?.generated_at}
+                cached={synth?.cached}
+                error={synth?.error}
+                isLoading={synthMut.isPending}
+                isError={synthMut.isError}
+                hasRun={!!synth}
+                onGenerate={() => synthMut.mutate(!!synth)}
+                picks={synth?.highlights && synth.highlights.length > 0 ? (
+                  <div>
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                      <Sparkles size={11} className="text-roche-light" /> Most impactful results
+                    </p>
+                    <div className="space-y-2">
+                      {synth.highlights.map(h => (
+                        <div key={h.id} className="space-y-1">
+                          <ArticleRow result={h} onClick={() => setActive(h)} />
+                          <p className="text-[11px] text-gray-500 dark:text-[#94a3b8] italic px-1 leading-snug">{h.why}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : undefined}
+              />
 
               {/* ── SECTION 1: Latest KOL Mentions ── */}
               {showKolRecent && (kolRecent.length > 0 || kolLoading) && (

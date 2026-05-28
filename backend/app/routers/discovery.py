@@ -598,6 +598,142 @@ async def kol_mentions(q: str, db: AsyncSession = Depends(get_db)):
     return {"recent": recent[:50], "historical": historical[:50], "total": len(insights)}
 
 
+# ── Synthesis / takeaway + LLM editor's picks ────────────
+
+class SynthesisRequest(BaseModel):
+    query: str
+    lang: str | None = None
+    refresh: bool = False
+
+
+@router.post("/synthesis")
+async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db)):
+    """On-demand LLM synthesis of everything found for a query — web/social
+    results + KOL mentions. Returns a takeaway, 'so what for Roche', and the
+    LLM's pick of the most interesting/impactful results (each with a why).
+    Cached 6h in Redis keyed by query+lang.
+    """
+    import json as _json
+    from app.config import get_settings
+    from app.services.synthesizer import parse_synthesis
+    from app.models import ExtractedInsight
+    from sqlalchemy import or_, func
+
+    query = (body.query or "").strip()
+    if len(query) < 2:
+        return {"takeaway": "", "so_what": "", "highlights": [], "total": 0,
+                "generated_at": None, "cached": False, "error": None}
+
+    qhash = hashlib.sha256(f"{query.lower()}|{body.lang or 'all'}".encode()).hexdigest()[:16]
+    key = f"disc_synth:v1:{qhash}"
+    r = None
+    try:
+        import redis as _redis
+        r = _redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
+        if not body.refresh:
+            cached = r.get(key)
+            if cached:
+                return _json.loads(cached)
+        else:
+            r.delete(key)
+    except Exception:
+        r = None
+
+    # Web / social results for this query
+    res_rows = await db.execute(
+        select(DiscoveryResult)
+        .where(DiscoveryResult.query == query)
+        .order_by(desc(DiscoveryResult.scraped_at))
+        .limit(60)
+    )
+    results = res_rows.scalars().all()
+    if body.lang and body.lang != "all":
+        results = [r0 for r0 in results if (r0.language or "en") == body.lang]
+
+    # KOL mentions (context only — not pickable)
+    term = query.lower()
+    kol_rows = await db.execute(
+        select(ExtractedInsight)
+        .where(or_(
+            func.lower(ExtractedInsight.topic).contains(term),
+            func.lower(ExtractedInsight.what_they_said).contains(term),
+        ))
+        .order_by(desc(ExtractedInsight.extracted_at))
+        .limit(20)
+    )
+    kol_insights = kol_rows.scalars().all()
+
+    if not results and not kol_insights:
+        return {"takeaway": "", "so_what": "", "highlights": [], "total": 0,
+                "generated_at": None, "cached": False, "error": None}
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    listing = "\n".join(
+        f"[{r0.id}] ({r0.media_type or 'article'}, {r0.source_name or _extract_source_name(r0.url)}) "
+        f"\"{(r0.snippet or r0.title or '')[:200]}\""
+        for r0 in results[:40]
+    )
+    kol_block = "\n".join(
+        f"- {ins.topic}: \"{(ins.what_they_said or '')[:160]}\" ({ins.sentiment})"
+        for ins in kol_insights[:15]
+    ) or "(none)"
+
+    prompt = (
+        "You are a senior pharma intelligence analyst for Roche France.\n"
+        f"A user searched the topic: \"{query}\".\n\n"
+        f"WEB & SOCIAL RESULTS (each prefixed with its [id]):\n{listing or '(none)'}\n\n"
+        f"WHAT YOUR MONITORED KOLs SAID ABOUT THIS TOPIC:\n{kol_block}\n\n"
+        "Write a concise intelligence synthesis. Use EXACTLY this format with these markers:\n"
+        "##TAKEAWAY##\n"
+        "3-5 sentences: the state of play on this topic across the web, social and your KOLs.\n"
+        "##SO_WHAT##\n"
+        "2-3 sentences on what this means for Roche France and what to do next.\n"
+        "##CONCLUSION##\n"
+        "2-3 sentences: the bottom line — the single most important thing to focus on now.\n"
+        "##PICKS##\n"
+        "The 4-6 most interesting / impactful results. One per line, format: [id] one-sentence why it matters. "
+        "Use the real [id] values from the WEB & SOCIAL RESULTS list above.\n\n"
+        "Reference real drug names, sources and findings. Be specific."
+    )
+
+    from app.services.llm_router import call_pro
+    err = None
+    parsed = {"takeaway": "", "so_what": "", "picks": []}
+    try:
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1500)
+        parsed = parse_synthesis(raw)
+    except Exception as exc:
+        err = str(exc)[:300]
+
+    by_id = {r0.id: r0 for r0 in results}
+    highlights = []
+    for pick in parsed["picks"][:6]:
+        r0 = by_id.get(pick["id"])
+        if r0:
+            out = _to_out(r0, from_cache=True)
+            out["why"] = pick["why"]
+            highlights.append(out)
+
+    result = {
+        "takeaway": parsed["takeaway"],
+        "so_what": parsed["so_what"],
+        "conclusion": parsed["conclusion"],
+        "highlights": highlights,
+        "total": len(results) + len(kol_insights),
+        "generated_at": now.isoformat(),
+        "cached": False,
+        "error": err,
+    }
+    try:
+        if r and (parsed["takeaway"] or highlights):
+            r.set(key, _json.dumps(result), ex=21600)
+    except Exception:
+        pass
+    return result
+
+
 # ── Describe endpoint (LLM, cached per result) ───────────
 
 class DescribeDiscoveryRequest(BaseModel):

@@ -8,6 +8,7 @@ import { api, type SocialPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import { useHiddenRecents } from "@/lib/hiddenRecents";
+import { SynthesisPanel } from "@/components/SynthesisPanel";
 
 const PLATFORM_COLOR: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
@@ -268,6 +269,18 @@ export default function SocialTrends() {
     return c;
   }, [allPosts, kind, minLikes, language, fromDate, toDate, cutoff]);
 
+  // On-demand AI synthesis over the WHOLE DB (KOL + social) — always produces output
+  const synthMut = useMutation({
+    mutationFn: (refresh: boolean) => api.combinedSynthesis(refresh),
+  });
+  const synth = synthMut.data;
+
+  // Most impactful posts by raw engagement (free, client-side) — whole feed
+  const topImpact = useMemo(() => {
+    const eng = (p: SocialPost) => (p.likes ?? 0) + 2 * (p.comments ?? 0) + 1.5 * (p.shares ?? 0);
+    return [...allPosts].sort((a, b) => eng(b) - eng(a)).slice(0, 4);
+  }, [allPosts]);
+
   const searchPosts = searchData?.results ?? [];
   const isDefault = sortBy === DEFAULTS.sortBy && platform === DEFAULTS.platform &&
     days === DEFAULTS.days && kind === DEFAULTS.kind && minLikes === DEFAULTS.minLikes &&
@@ -479,6 +492,48 @@ export default function SocialTrends() {
             </div>
           ) : (
             <div className="p-5 space-y-5">
+              {/* AI synthesis / takeaway */}
+              <SynthesisPanel
+                accent="orange"
+                takeaway={synth?.takeaway}
+                takeawayLabel="What's happening"
+                soWhat={synth?.so_what}
+                conclusion={synth?.conclusion}
+                conclusionLabel="The bottom line"
+                generatedAt={synth?.generated_at}
+                cached={synth?.cached}
+                error={synth?.error}
+                isLoading={synthMut.isPending}
+                isError={synthMut.isError}
+                hasRun={!!synth}
+                onGenerate={() => synthMut.mutate(!!synth)}
+                picks={synth?.focus && synth.focus.length > 0 ? (
+                  <div>
+                    <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                      <Sparkles size={11} className="text-orange-500" /> What to focus on
+                    </p>
+                    <ul className="space-y-1.5">
+                      {synth.focus.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-[#e2e8f0]">
+                          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-1.5 shrink-0" />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : undefined}
+              />
+
+              {/* Most impactful by engagement (free) */}
+              {topImpact.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Most impactful — by engagement</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {topImpact.map(p => <PostCard key={p.id} post={p} onClick={() => setSelected(p)} />)}
+                  </div>
+                </div>
+              )}
+
               {/* Trending topic chips */}
               {allData?.top_topics && allData.top_topics.length > 0 && (
                 <div>

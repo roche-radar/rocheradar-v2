@@ -180,6 +180,111 @@ async def trends(
     }
 
 
+# ── Synthesis / takeaway + LLM editor's picks ─────────────
+
+@router.get("/synthesis")
+async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = False,
+                    db: AsyncSession = Depends(get_db)):
+    """On-demand LLM synthesis of the recent social feed (filter-independent).
+
+    Returns a takeaway + 'so what for Roche' + the LLM's pick of the most
+    interesting/impactful posts (each with a one-line why). Cached 6h in Redis.
+    """
+    from app.config import get_settings
+    from app.services.synthesizer import parse_synthesis
+
+    key = f"social_synth:v1:{days}:{lang or 'all'}"
+    r = None
+    try:
+        import redis as _redis
+        r = _redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
+        if not refresh:
+            cached = r.get(key)
+            if cached:
+                return json.loads(cached)
+        else:
+            r.delete(key)
+    except Exception:
+        r = None
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    q = select(SocialPost).where(SocialPost.scraped_at >= since)
+    if lang and lang != "all":
+        q = q.where(SocialPost.language == lang)
+    q = q.order_by(desc(SocialPost.scraped_at)).limit(1000)
+    rows = await db.execute(q)
+    posts = rows.scalars().all()
+
+    empty = {"takeaway": "", "so_what": "", "highlights": [],
+             "total_posts": 0, "generated_at": None, "cached": False, "error": None}
+    if not posts:
+        return empty
+
+    ranked = sorted(posts, key=lambda p: _trend_score(p, now), reverse=True)
+    sample = ranked[:50]
+    listing = "\n".join(
+        f"[{p.id}] ({p.platform}, {p.likes}♥ {p.comments}\U0001f4ac) "
+        f"{p.author or ''}: \"{(p.text or '')[:200]}\""
+        for p in sample
+    )
+
+    prompt = (
+        "You are a senior pharma social-media intelligence analyst for Roche France.\n"
+        f"Below are {len(sample)} of the most-engaged social posts from the last {days} days "
+        "(Instagram, X, LinkedIn, Facebook) on oncology / medical / Roche topics. "
+        "Each line is prefixed with its [id].\n\n"
+        f"{listing}\n\n"
+        "Write a concise intelligence synthesis. Use EXACTLY this format with these markers:\n"
+        "##TAKEAWAY##\n"
+        "3-5 sentences: what the social conversation centres on right now, notable shifts, "
+        "competitor or drug mentions, sentiment.\n"
+        "##SO_WHAT##\n"
+        "2-3 sentences on what this means for Roche France and what to monitor or act on.\n"
+        "##CONCLUSION##\n"
+        "2-3 sentences: the bottom line — the single most important thing to focus on now.\n"
+        "##PICKS##\n"
+        "The 4-6 most interesting / impactful posts. One per line, format: [id] one-sentence why it matters. "
+        "Use the real [id] values from the list above.\n\n"
+        "Reference real drug names, hashtags and platforms. Be specific."
+    )
+
+    from app.services.llm_router import call_pro
+    err = None
+    parsed = {"takeaway": "", "so_what": "", "picks": []}
+    try:
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1500)
+        parsed = parse_synthesis(raw)
+    except Exception as exc:
+        err = str(exc)[:300]
+
+    by_id = {p.id: p for p in posts}
+    highlights = []
+    for pick in parsed["picks"][:6]:
+        p = by_id.get(pick["id"])
+        if p:
+            out = _to_out(p, now)
+            out["why"] = pick["why"]
+            highlights.append(out)
+
+    result = {
+        "takeaway": parsed["takeaway"],
+        "so_what": parsed["so_what"],
+        "conclusion": parsed["conclusion"],
+        "highlights": highlights,
+        "total_posts": len(posts),
+        "generated_at": now.isoformat(),
+        "cached": False,
+        "error": err,
+    }
+    try:
+        if r and (parsed["takeaway"] or highlights):
+            r.set(key, json.dumps(result), ex=21600)
+    except Exception:
+        pass
+    return result
+
+
 # ── Time series for the trend wave chart ──────────────────
 
 @router.get("/timeseries")

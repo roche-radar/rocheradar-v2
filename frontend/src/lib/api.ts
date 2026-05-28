@@ -192,6 +192,40 @@ export interface KolInsight {
   extracted_at: string;
 }
 
+export interface SocialSynthesis {
+  takeaway: string;
+  so_what: string;
+  conclusion: string;
+  highlights: (SocialPost & { why: string })[];
+  total_posts: number;
+  generated_at: string | null;
+  cached: boolean;
+  error?: string | null;
+}
+
+export interface DiscoverySynthesis {
+  takeaway: string;
+  so_what: string;
+  conclusion: string;
+  highlights: (DiscoveryResult & { why: string })[];
+  total: number;
+  generated_at: string | null;
+  cached: boolean;
+  error?: string | null;
+}
+
+export interface CombinedSynthesis {
+  takeaway: string;
+  so_what: string;
+  conclusion: string;
+  focus: string[];
+  kol_count: number;
+  social_count: number;
+  generated_at: string | null;
+  cached: boolean;
+  error?: string | null;
+}
+
 export interface DiscoveryContent {
   content: string | null;
   media_type: string;
@@ -213,6 +247,8 @@ export interface TopicsData {
 // ── API calls ─────────────────────────────────────────────
 export const api = {
   stats: () => req<Stats>("/stats"),
+  combinedSynthesis: (refresh = false) =>
+    req<CombinedSynthesis>(`/stats/synthesis${refresh ? "?refresh=true" : ""}`),
   dailyBrief: (refresh = false) => req<DailyBrief>(`/stats/daily-brief${refresh ? "?refresh=true" : ""}`),
   kolBrief: (refresh = false) => req<{
     points: DailyBriefPoint[];
@@ -320,6 +356,11 @@ export const api = {
       historical: KolInsight[];
       total: number;
     }>(`/discovery/kol-mentions?q=${encodeURIComponent(q)}`),
+    synthesis: (query: string, lang = "all", refresh = false) =>
+      req<DiscoverySynthesis>("/discovery/synthesis", {
+        method: "POST",
+        body: JSON.stringify({ query, lang, refresh }),
+      }),
   },
 
   social: {
@@ -348,5 +389,9 @@ export const api = {
       ),
     discoverHistory: () =>
       req<{ queries: { query: string; scraped_at: string }[] }>("/social/discover/history"),
+    synthesis: (days = 30, lang = "all", refresh = false) =>
+      req<SocialSynthesis>(
+        `/social/synthesis?days=${days}&lang=${lang}${refresh ? "&refresh=true" : ""}`
+      ),
   },
 };
