@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Search, RefreshCw, ExternalLink, Database, Globe,
   Youtube, FileText, Lock, AlertCircle, Play, X, BookOpen,
-  Video, TrendingUp, Clock, ChevronRight, Zap,
+  Video, TrendingUp, Clock, ChevronRight, Zap, Sparkles,
   ChevronDown, ChevronUp, History, Star, MessageCircle, Linkedin,
   ScanSearch, Link2, FlaskConical
 } from "lucide-react";
@@ -67,8 +67,12 @@ export default function TopicExplorer() {
   const [query, setQuery]         = useState("");
   const [submitted, setSubmitted] = useState("");
   const [filter, setFilter]       = useState<SectionFilter>("all");
-  const [active, setActive]       = useState<DiscoveryResult | null>(null);
-  const [deepOpen, setDeepOpen]   = useState(false);
+  const [active, setActive]           = useState<DiscoveryResult | null>(null);
+  const [describeResult, setDescribe] = useState<DiscoveryResult | null>(null);
+  const [deepOpen, setDeepOpen]       = useState(false);
+  const [langFilter, setLangFilter]   = useState("all");
+  const [fromDate, setFromDate]       = useState("");
+  const [toDate, setToDate]           = useState("");
 
   const { data: history } = useQuery({ queryKey: ["disc-hist"], queryFn: api.discovery.history });
 
@@ -123,8 +127,12 @@ export default function TopicExplorer() {
     searchMut.mutate({ q: term, refresh });
   }
 
-  const webAll      = searchMut.data?.results ?? [];
+  const webRaw      = searchMut.data?.results ?? [];
   const fromCache   = searchMut.data?.from_cache ?? false;
+  const webAll      = webRaw
+    .filter(r => langFilter === "all" || r.language === langFilter)
+    .filter(r => !fromDate || !r.published_date || r.published_date >= fromDate)
+    .filter(r => !toDate   || !r.published_date || r.published_date <= toDate);
   const webArticles = webAll.filter(r => r.media_type === "article" || r.media_type === "pdf" || r.media_type === "research");
   const webVideos   = webAll.filter(r => r.media_type === "video");
   const webSocial   = webAll.filter(r => r.media_type === "linkedin" || r.media_type === "twitter" || r.media_type === "social");
@@ -243,6 +251,23 @@ export default function TopicExplorer() {
                     )}
                   </button>
                 ))}
+                <div className="my-2 h-px bg-gray-100 dark:bg-[#1e3a5f]/40" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-300 dark:text-[#334155] px-2 pt-1 pb-1">Language</p>
+                {[{v:"all",l:"All"},{v:"en",l:"English"},{v:"fr",l:"French"}].map(o => (
+                  <button key={o.v} onClick={() => setLangFilter(o.v)}
+                    className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
+                      langFilter === o.v ? "bg-roche-blue text-white" : "text-gray-500 dark:text-[#64748b] hover:bg-gray-50 dark:hover:bg-[#111827] hover:text-gray-800 dark:hover:text-[#94a3b8]")}>
+                    {o.l}
+                  </button>
+                ))}
+                <div className="my-2 h-px bg-gray-100 dark:bg-[#1e3a5f]/40" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-300 dark:text-[#334155] px-2 pt-1 pb-1">Date range</p>
+                <div className="px-2 space-y-1">
+                  <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                    placeholder="From" className="w-full text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-[#1e3a5f] bg-transparent text-gray-600 dark:text-gray-400"/>
+                  <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                    placeholder="To" className="w-full text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-[#1e3a5f] bg-transparent text-gray-600 dark:text-gray-400"/>
+                </div>
                 <div className="my-2 h-px bg-gray-100 dark:bg-[#1e3a5f]/40" />
               </>
             )}
@@ -437,7 +462,7 @@ export default function TopicExplorer() {
                   {/* List rows */}
                   <div className="space-y-2">
                     {webArticles.slice(webArticles.length>=3?3:0).map(r => (
-                      <ArticleRow key={r.id} result={r} onClick={() => setActive(r)}/>
+                      <ArticleRow key={r.id} result={r} onClick={() => setActive(r)} onDescribe={() => setDescribe(r)}/>
                     ))}
                   </div>
                 </Section>
@@ -456,7 +481,7 @@ export default function TopicExplorer() {
         </div>
       </div>
 
-      {/* ══ MODAL ══ */}
+      {/* ══ CONTENT MODAL ══ */}
       {active && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           onClick={() => setActive(null)}>
@@ -465,6 +490,11 @@ export default function TopicExplorer() {
             <DetailModal result={active} onClose={() => setActive(null)}/>
           </div>
         </div>
+      )}
+
+      {/* ══ DESCRIBE RIGHT PANEL ══ */}
+      {describeResult && (
+        <DescribePanel result={describeResult} onClose={() => setDescribe(null)}/>
       )}
 
       {deepOpen && submitted && (
@@ -919,7 +949,7 @@ function SocialListRow({ result, onClick }: { result: DiscoveryResult; onClick: 
   );
 }
 
-function ArticleRow({ result, onClick }: { result: DiscoveryResult; onClick: () => void }) {
+function ArticleRow({ result, onClick, onDescribe }: { result: DiscoveryResult; onClick: () => void; onDescribe?: () => void }) {
   const domain = result.source_name || getDomain(result.url);
   const bg = domainBg(domain);
   return (
@@ -946,8 +976,70 @@ function ArticleRow({ result, onClick }: { result: DiscoveryResult; onClick: () 
         </p>
       </div>
       <DateTag label={result.published_date||fmt(result.scraped_at)} type={result.published_date?"pub":"fetch"} small/>
+      {onDescribe && (
+        <button onClick={e => { e.stopPropagation(); onDescribe(); }}
+          title="AI Describe"
+          className="p-1 rounded hover:bg-roche-blue/10 text-gray-300 hover:text-roche-blue dark:hover:text-blue-400 transition-colors shrink-0">
+          <Sparkles size={12}/>
+        </button>
+      )}
       <ExternalLink size={12} className="text-gray-300 dark:text-[#334155] group-hover:text-roche-blue shrink-0 transition-colors"/>
     </article>
+  );
+}
+
+/* ─── describe right panel ───────────────────────────────── */
+
+function DescribePanel({ result, onClose }: { result: DiscoveryResult; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["disc-describe", result.id],
+    queryFn: () => api.discovery.describe(result.id),
+    staleTime: Infinity,
+  });
+  const domain = result.source_name || getDomain(result.url);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose}/>
+      <div className="relative w-full max-w-md bg-white dark:bg-[#0d1424] border-l border-slate-200 dark:border-white/10 flex flex-col shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-200/50 dark:border-white/10 flex-none">
+          <Sparkles size={16} className="text-roche-blue shrink-0"/>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-gray-400 truncate">{domain}</p>
+            <p className="text-sm font-bold text-gray-900 dark:text-white line-clamp-1">{result.title || result.snippet || domain}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-[#1e3a5f]/40 rounded-lg transition-colors text-gray-400">
+            <X size={16}/>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[80,60,90].map((w,i) => <div key={i} className="h-4 rounded bg-gray-100 dark:bg-[#1e3a5f]/40 animate-pulse" style={{width:`${w}%`}}/>)}
+            </div>
+          ) : data ? (
+            <>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">What this is</p>
+                <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.description}</p>
+              </div>
+              {data.so_what && (
+                <div className="bg-roche-blue/5 dark:bg-roche-blue/10 rounded-xl p-4 border border-roche-blue/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-roche-blue mb-2">So what for Roche?</p>
+                  <p className="text-sm text-gray-700 dark:text-[#cbd5e1] leading-relaxed">{data.so_what}</p>
+                </div>
+              )}
+              <a href={result.url} target="_blank" rel="noreferrer"
+                className="flex items-center gap-2 text-xs text-roche-blue hover:underline">
+                <ExternalLink size={11}/> View source
+              </a>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Failed to load description.</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

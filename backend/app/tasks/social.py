@@ -9,6 +9,18 @@ clicks a trend (see routers/social.py).
 import asyncio
 import json
 
+
+def _detect_lang(text: str) -> str:
+    """Lightweight FR/EN detector based on French function-word frequency."""
+    if not text or len(text) < 20:
+        return "en"
+    lower = text.lower()[:1000]
+    fr_signals = [" de ", " du ", " le ", " la ", " les ", " des ", " et ",
+                  " en ", " une ", " pour ", " avec ", " dans ", " sur ",
+                  " est ", " sont ", " nous ", " vous ", " ils ", " au ",
+                  "qu'", " l'", " d'", " n'"]
+    return "fr" if sum(1 for w in fr_signals if w in lower) >= 4 else "en"
+
 import structlog
 
 # ── Pharma relevance gate ─────────────────────────────────
@@ -210,6 +222,7 @@ async def _run_scan() -> dict:
                 query=term,
                 kind=kind,
                 topic=term,
+                language=_detect_lang(post.get("text", "")),
                 posted_at=post.get("posted_at"),
                 content_hash=ch,
             ).on_conflict_do_nothing(index_elements=["content_hash"])
@@ -382,6 +395,7 @@ async def _run_discover(query: str) -> dict:
                 views=post.get("views", 0), shares=post.get("shares", 0),
                 hashtags=json.dumps(post.get("hashtags", [])),
                 query=query, kind="field", topic=post["topic"],
+                language=_detect_lang(post.get("text", "")),
                 posted_at=post.get("posted_at"), content_hash=ch,
             ).on_conflict_do_nothing(index_elements=["content_hash"])
             async with CelerySessionLocal() as wsess:

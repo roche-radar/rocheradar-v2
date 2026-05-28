@@ -34,6 +34,7 @@ class SocialPost(Base):
     disease_area: Mapped[str | None] = mapped_column(String(64), index=True)
     topic: Mapped[str | None] = mapped_column(String(255))          # coarse topic (from query/hashtag)
 
+    language: Mapped[str | None] = mapped_column(String(8))           # 'en' | 'fr' | etc.
     llm_description: Mapped[str | None] = mapped_column(Text)        # filled on click
 
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

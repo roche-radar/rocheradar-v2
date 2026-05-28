@@ -107,6 +107,7 @@ export interface SocialPost {
   posted_at: string | null;
   trend_score: number;
   has_description: boolean;
+  language: string;
 }
 
 export interface SocialTopic {
@@ -152,6 +153,22 @@ export interface DiscoveryResult {
   from_cache: boolean;
   media_type: "article" | "video" | "pdf" | "linkedin" | "twitter" | "social" | "research";
   thumbnail_url: string | null;
+  language: string;
+  llm_description: string | null;
+}
+
+export interface DailyBriefPoint {
+  text: string;
+  source: "kol" | "social" | "both";
+  priority: "high" | "medium";
+}
+
+export interface DailyBrief {
+  points: DailyBriefPoint[];
+  generated_at: string | null;
+  cached: boolean;
+  kol_count: number;
+  social_count: number;
 }
 
 export interface KolInsight {
@@ -188,6 +205,7 @@ export interface TopicsData {
 // ── API calls ─────────────────────────────────────────────
 export const api = {
   stats: () => req<Stats>("/stats"),
+  dailyBrief: () => req<DailyBrief>("/stats/daily-brief"),
   topics: (days = 7, diseaseArea?: string) => req<TopicsData>(`/stats/topics?days=${days}${diseaseArea && diseaseArea !== "all" ? `&disease_area=${diseaseArea}` : ""}`),
 
   targets: {
@@ -246,6 +264,11 @@ export const api = {
       "/discovery/deep-search",
       { method: "POST", body: JSON.stringify({ query: q, force_refresh: false }) }
     ),
+    describe: (result_id: number) =>
+      req<{ description: string; so_what: string | null; cached: boolean }>(
+        "/discovery/describe",
+        { method: "POST", body: JSON.stringify({ result_id }) }
+      ),
     kolMentions: (q: string) => req<{
       recent: KolInsight[];
       historical: KolInsight[];

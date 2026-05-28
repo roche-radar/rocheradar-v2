@@ -18,4 +18,6 @@ class DiscoveryResult(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     media_type: Mapped[str] = mapped_column(String(32), default="article")  # article | video | pdf
     thumbnail_url: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(String(8))
+    llm_description: Mapped[str | None] = mapped_column(Text)
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

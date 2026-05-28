@@ -50,7 +50,13 @@ const MIN_LIKES_OPTIONS = [
 ];
 
 // Defaults — used for "reset" detection and actual reset
-const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0 };
+const LANGUAGE_OPTIONS = [
+  { value: "all", label: "All languages" },
+  { value: "en",  label: "English" },
+  { value: "fr",  label: "French" },
+];
+
+const DEFAULTS = { sortBy: "trending", platform: "all", days: 30, kind: "all", minLikes: 0, language: "all", fromDate: "", toDate: "" };
 
 function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -103,6 +109,9 @@ export default function SocialTrends() {
   const [days, setDays]           = useState(DEFAULTS.days);
   const [kind, setKind]           = useState(DEFAULTS.kind);
   const [minLikes, setMinLikes]   = useState(DEFAULTS.minLikes);
+  const [language, setLanguage]   = useState(DEFAULTS.language);
+  const [fromDate, setFromDate]   = useState(DEFAULTS.fromDate);
+  const [toDate, setToDate]       = useState(DEFAULTS.toDate);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selected, setSelected]   = useState<SocialPost | null>(null);
@@ -199,7 +208,7 @@ export default function SocialTrends() {
     if (apifyOn) searchMut.mutate();
   }
   function clearSearch() { setSubmitted(""); setQuery(""); setSearching(false); setPolls(0); }
-  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setTopicFilter(null); }
+  function resetFilters() { setSortBy(DEFAULTS.sortBy); setPlatform(DEFAULTS.platform); setDays(DEFAULTS.days); setKind(DEFAULTS.kind); setMinLikes(DEFAULTS.minLikes); setLanguage(DEFAULTS.language); setFromDate(DEFAULTS.fromDate); setToDate(DEFAULTS.toDate); setTopicFilter(null); }
 
   const allPosts = allData?.top_posts ?? [];
 
@@ -213,10 +222,13 @@ export default function SocialTrends() {
   // Client-side filter + sort (instant, no extra fetches)
   const filtered = useMemo(() => {
     let posts = [...allPosts];
-    if (platform !== "all") posts = posts.filter(p => p.platform === platform);
-    if (kind !== "all")     posts = posts.filter(p => p.kind === kind);
-    if (minLikes > 0)       posts = posts.filter(p => (p.likes ?? 0) >= minLikes);
-    if (topicFilter)        posts = posts.filter(p => p.topic === topicFilter);
+    if (platform !== "all")  posts = posts.filter(p => p.platform === platform);
+    if (kind !== "all")      posts = posts.filter(p => p.kind === kind);
+    if (minLikes > 0)        posts = posts.filter(p => (p.likes ?? 0) >= minLikes);
+    if (topicFilter)         posts = posts.filter(p => p.topic === topicFilter);
+    if (language !== "all")  posts = posts.filter(p => p.language === language);
+    if (fromDate)            posts = posts.filter(p => p.posted_at && p.posted_at >= fromDate);
+    if (toDate)              posts = posts.filter(p => p.posted_at && p.posted_at <= toDate + "T23:59:59Z");
     // Date filter on posted_at; skip posts with no date
     posts = posts.filter(p => !p.posted_at || p.posted_at >= cutoff);
 
@@ -226,7 +238,7 @@ export default function SocialTrends() {
     // "trending" is already sorted by trend_score from API
 
     return posts;
-  }, [allPosts, platform, kind, minLikes, topicFilter, cutoff, sortBy]);
+  }, [allPosts, platform, kind, minLikes, topicFilter, language, fromDate, toDate, cutoff, sortBy]);
 
   // Platform counts on the current non-platform-filtered set (shows how many each platform has)
   const platformCounts = useMemo(() => {
@@ -241,7 +253,8 @@ export default function SocialTrends() {
 
   const searchPosts = searchData?.results ?? [];
   const isDefault = sortBy === DEFAULTS.sortBy && platform === DEFAULTS.platform &&
-    days === DEFAULTS.days && kind === DEFAULTS.kind && minLikes === DEFAULTS.minLikes && !topicFilter;
+    days === DEFAULTS.days && kind === DEFAULTS.kind && minLikes === DEFAULTS.minLikes &&
+    language === DEFAULTS.language && !fromDate && !toDate && !topicFilter;
 
   return (
     <div className="glass rounded-xl flex flex-col h-full overflow-hidden">
@@ -330,8 +343,22 @@ export default function SocialTrends() {
 
             <FilterSection title="Date range">
               {DATE_RANGES.map(r => (
-                <FilterBtn key={r.value} active={days === r.value} onClick={() => setDays(r.value)}>
+                <FilterBtn key={r.value} active={days === r.value && !fromDate && !toDate} onClick={() => { setDays(r.value); setFromDate(""); setToDate(""); }}>
                   {r.label}
+                </FilterBtn>
+              ))}
+              <div className="px-2 pt-1 space-y-1">
+                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                  className="w-full text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-[#1e3a5f] bg-transparent text-gray-600 dark:text-gray-400" />
+                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                  className="w-full text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-[#1e3a5f] bg-transparent text-gray-600 dark:text-gray-400" />
+              </div>
+            </FilterSection>
+
+            <FilterSection title="Language">
+              {LANGUAGE_OPTIONS.map(o => (
+                <FilterBtn key={o.value} active={language === o.value} onClick={() => setLanguage(o.value)}>
+                  {o.label}
                 </FilterBtn>
               ))}
             </FilterSection>

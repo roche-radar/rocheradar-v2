@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
 
+from sqlalchemy import text
 from app.config import get_settings
 from app.database import engine, Base
 from app.routers import targets, runs, reports, settings as settings_router, agent
@@ -65,7 +66,19 @@ if _settings.sentry_dsn:
 async def lifespan(app: FastAPI):
     logger.info("startup", env=_settings.environment)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # Enable pgvector if available — silently skip if not installed locally
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception:
+            pass
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        except Exception as _e:
+            if "vector" in str(_e).lower():
+                logger.warning("startup.create_all_skipped_vector_missing",
+                               hint="Install pgvector or run against Railway DB")
+            else:
+                raise
     await _seed_defaults()
     yield
     logger.info("shutdown")
@@ -340,6 +353,97 @@ async def stats():
         "last_run_at": last.started_at.isoformat() if last else None,
         "last_run_status": last.status if last else None,
     }
+
+
+@app.get("/api/stats/daily-brief")
+async def daily_brief():
+    """AI-generated key takeaways from today's KOL insights + recent social trends.
+    Cached in Redis for 6 hours so it doesn't burn LLM tokens on every dashboard load."""
+    import json as _json
+    from datetime import datetime, timezone, timedelta
+
+    _BRIEF_KEY = "daily_brief:v1"
+    try:
+        import redis as _redis
+        from app.config import get_settings as _gs
+        r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
+        cached = r.get(_BRIEF_KEY)
+        if cached:
+            return _json.loads(cached)
+    except Exception:
+        r = None
+
+    from app.database import AsyncSessionLocal
+    from app.models import ExtractedInsight, Target, SocialPost
+    from sqlalchemy import select, desc
+
+    now = datetime.now(timezone.utc)
+    today_start = now - timedelta(hours=48)  # 48h window so weekend runs still show
+
+    async with AsyncSessionLocal() as sess:
+        ins_rows = await sess.execute(
+            select(ExtractedInsight, Target.name)
+            .join(Target, ExtractedInsight.target_id == Target.id)
+            .where(ExtractedInsight.extracted_at >= today_start)
+            .order_by(desc(ExtractedInsight.extracted_at))
+            .limit(40)
+        )
+        insights = ins_rows.all()
+
+        social_rows = await sess.execute(
+            select(SocialPost)
+            .where(SocialPost.scraped_at >= now - timedelta(days=7))
+            .order_by(desc(SocialPost.likes + SocialPost.comments * 2))
+            .limit(20)
+        )
+        social_posts = social_rows.scalars().all()
+
+    if not insights and not social_posts:
+        return {"points": [], "generated_at": None, "cached": False}
+
+    insights_text = "\n".join(
+        f"- [{name}] {ins.topic}: {ins.what_they_said}"
+        for ins, name in insights
+    ) or "No KOL insights today."
+
+    social_text = "\n".join(
+        f"- [{p.platform}] {(p.text or '')[:200]} (likes:{p.likes})"
+        for p in social_posts
+    ) or "No trending social posts."
+
+    from app.services.llm_router import call_pro
+    prompt = (
+        "You are a pharma intelligence analyst for Roche.\n"
+        "Based on the KOL insights and social trends below, generate 5-7 concise bullet-point "
+        "key takeaways that Roche's medical team should focus on.\n\n"
+        f"KOL INSIGHTS (last 48h):\n{insights_text}\n\n"
+        f"TRENDING SOCIAL (last 7 days, top engagement):\n{social_text}\n\n"
+        'Return JSON: {"points": [{"text": "...", "source": "kol|social|both", "priority": "high|medium"}]}'
+    )
+    try:
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1024)
+        import re as _re
+        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        parsed = _json.loads(m.group(0)) if m else {}
+        points = parsed.get("points", [])
+    except Exception:
+        points = []
+
+    result = {
+        "points": points,
+        "generated_at": now.isoformat(),
+        "cached": False,
+        "kol_count": len(insights),
+        "social_count": len(social_posts),
+    }
+
+    try:
+        if r:
+            r.set(_BRIEF_KEY, _json.dumps(result), ex=21600)  # 6h TTL
+    except Exception:
+        pass
+
+    return result
 
 
 # ── SPA fallback ──────────────────────────────────────────

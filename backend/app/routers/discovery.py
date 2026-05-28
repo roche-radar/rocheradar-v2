@@ -203,6 +203,17 @@ def _extract_og_image(html: str) -> str | None:
     return None
 
 
+def _detect_lang(text: str) -> str:
+    if not text or len(text) < 20:
+        return "en"
+    lower = text.lower()[:1000]
+    fr_signals = [" de ", " du ", " le ", " la ", " les ", " des ", " et ",
+                  " en ", " une ", " pour ", " avec ", " dans ", " sur ",
+                  " est ", " sont ", " nous ", " vous ", " ils ", " au ",
+                  "qu'", " l'", " d'", " n'"]
+    return "fr" if sum(1 for w in fr_signals if w in lower) >= 4 else "en"
+
+
 def _to_out(r: DiscoveryResult, from_cache: bool) -> dict:
     return {
         "id": r.id,
@@ -217,6 +228,8 @@ def _to_out(r: DiscoveryResult, from_cache: bool) -> dict:
         "from_cache": from_cache,
         "media_type": r.media_type or "article",
         "thumbnail_url": r.thumbnail_url,
+        "language": r.language or "en",
+        "llm_description": r.llm_description,
     }
 
 
@@ -292,6 +305,7 @@ async def _save_hit(db, query: str, hit: dict, seen_urls: set) -> dict | None:
         content_hash=ch,
         media_type=media_type,
         thumbnail_url=thumbnail_url,
+        language=_detect_lang((hit.get("title") or "") + " " + (hit.get("snippet") or "")),
     )
     db.add(row)
     try:
@@ -567,3 +581,49 @@ async def kol_mentions(q: str, db: AsyncSession = Depends(get_db)):
     historical.sort(key=sort_key, reverse=True)
 
     return {"recent": recent[:50], "historical": historical[:50], "total": len(insights)}
+
+
+# ── Describe endpoint (LLM, cached per result) ───────────
+
+class DescribeDiscoveryRequest(BaseModel):
+    result_id: int
+
+
+@router.post("/describe")
+async def describe_discovery(body: DescribeDiscoveryRequest, db: AsyncSession = Depends(get_db)):
+    """Generate LLM description + pharma so-what for a discovery result. Cached on the row."""
+    row = await db.get(DiscoveryResult, body.result_id)
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    if row.llm_description:
+        parts = row.llm_description.split("\n\n@@SO_WHAT@@\n\n", 1)
+        return {"description": parts[0], "so_what": parts[1] if len(parts) > 1 else None, "cached": True}
+
+    text = " ".join(filter(None, [row.title, row.snippet, (row.content or "")[:3000]]))
+    if not text.strip():
+        return {"description": "No content available.", "so_what": None, "cached": False}
+
+    from app.services.llm_router import call_pro
+    prompt = (
+        "You are a pharma intelligence analyst for Roche.\n"
+        f"Source: {row.source_name or row.url}\n\n"
+        f"Content:\n{text[:4000]}\n\n"
+        "Reply with JSON: {\"description\": \"2-3 sentence summary of what this is\", "
+        "\"so_what\": \"1-2 sentence takeaway specifically relevant to Roche and oncology\"}"
+    )
+    try:
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=512)
+        import json as _json, re as _re
+        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        parsed = _json.loads(m.group(0)) if m else {}
+        description = parsed.get("description", raw[:400])
+        so_what = parsed.get("so_what")
+    except Exception:
+        description = text[:400]
+        so_what = None
+
+    row.llm_description = description + ("\n\n@@SO_WHAT@@\n\n" + so_what if so_what else "")
+    await db.commit()
+    return {"description": description, "so_what": so_what, "cached": False}

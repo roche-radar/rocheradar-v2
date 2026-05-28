@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect } from "react";
-import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X } from "lucide-react";
+import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X, Sparkles, Loader2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from "recharts";
-import { api, type Insight } from "@/lib/api";
+import { api, type Insight, type DailyBriefPoint } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import SocialTrendsSummary from "./SocialTrendsSummary";
@@ -106,6 +106,13 @@ export default function Dashboard() {
     return areas;
   }, [allTargets]);
 
+  const { data: brief, isLoading: briefLoading } = useQuery({
+    queryKey: ["daily-brief"],
+    queryFn: api.dailyBrief,
+    staleTime: 6 * 60 * 60 * 1000, // 6h — matches Redis TTL
+    retry: false,
+  });
+
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
     onSuccess: (d) => { setActiveRunId(d.run_id); qc.invalidateQueries({ queryKey: ["current-run"] }); },
@@ -174,6 +181,52 @@ export default function Dashboard() {
             <span>{currentRun.insights_extracted} insights</span>
             <span>{currentRun.llm_calls_used} LLM calls</span>
           </div>
+        </div>
+      )}
+
+      {/* Daily Brief */}
+      {(briefLoading || (brief && brief.points.length > 0)) && (
+        <div className="glass rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                <Sparkles size={16} className="text-amber-600 dark:text-amber-400"/>
+              </div>
+              <div>
+                <h2 className="font-semibold text-sm">Today's Intelligence Brief</h2>
+                <p className="text-xs text-gray-400">AI-generated key takeaways from KOL monitoring + social trends</p>
+              </div>
+            </div>
+            {brief && (
+              <span className="text-[10px] text-gray-400">{brief.kol_count} insights · {brief.social_count} posts</span>
+            )}
+          </div>
+          {briefLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin"/>Generating brief…
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {brief!.points.map((p: DailyBriefPoint, i: number) => (
+                <div key={i} className={cn(
+                  "flex items-start gap-3 p-3 rounded-xl border",
+                  p.priority === "high"
+                    ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-800/20"
+                    : "bg-gray-50/60 dark:bg-[#0d1424]/40 border-slate-200/50 dark:border-white/5"
+                )}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
+                    p.priority === "high" ? "bg-amber-500" : "bg-gray-300 dark:bg-slate-600")}/>
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-700 dark:text-[#e2e8f0]">{p.text}</p>
+                    <span className={cn("text-[10px] font-semibold mt-0.5 inline-block",
+                      p.source === "kol" ? "text-blue-500" : p.source === "social" ? "text-orange-500" : "text-purple-500")}>
+                      {p.source === "kol" ? "KOL insight" : p.source === "social" ? "Social trend" : "KOL + Social"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

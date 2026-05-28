@@ -54,6 +54,7 @@ def _to_out(p: SocialPost, now: datetime) -> dict:
         "posted_at": p.posted_at.isoformat() if p.posted_at else None,
         "trend_score": _trend_score(p, now),
         "has_description": bool(p.llm_description),
+        "language": p.language or "en",
     }
 
 
@@ -106,16 +107,34 @@ async def trends(
     platform: str | None = None,
     kind: str | None = None,
     limit: int = 60,
+    language: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=days)
+    if from_date:
+        try:
+            from datetime import date as _date
+            since = datetime.fromisoformat(from_date).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            until = datetime.fromisoformat(to_date).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        except ValueError:
+            until = now
+    else:
+        until = now
 
-    q = select(SocialPost).where(SocialPost.scraped_at >= since)
+    q = select(SocialPost).where(SocialPost.scraped_at >= since, SocialPost.scraped_at <= until)
     if platform and platform != "all":
         q = q.where(SocialPost.platform == platform)
     if kind and kind != "all":
         q = q.where(SocialPost.kind == kind)
+    if language and language != "all":
+        q = q.where(SocialPost.language == language)
     # Pull a generous slice then rank in Python (engagement+recency isn't SQL-cheap)
     q = q.order_by(desc(SocialPost.scraped_at)).limit(1000)
 
