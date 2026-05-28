@@ -16,7 +16,7 @@ class SocialPost(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    platform: Mapped[str] = mapped_column(String(32), index=True)   # instagram | twitter | tiktok | facebook
+    platform: Mapped[str] = mapped_column(String(32), index=True)   # instagram | twitter | linkedin | facebook
     post_url: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str | None] = mapped_column(String(255))
     text: Mapped[str | None] = mapped_column(Text)

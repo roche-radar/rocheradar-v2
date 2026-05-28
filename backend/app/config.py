@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Embeddings
     voyage_api_key: str = ""
 
-    # Apify — social media scraping (Instagram, X, TikTok, Facebook)
+    # Apify — social media scraping (Instagram, X, LinkedIn, Facebook)
     apify_api_token: str = ""
 
     # Vercel Blob storage

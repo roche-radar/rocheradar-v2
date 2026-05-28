@@ -11,6 +11,50 @@ import json
 
 import structlog
 
+# ── Pharma relevance gate ─────────────────────────────────
+# Posts are only stored if they contain at least one of these signals in
+# their text, hashtags, or topic. This filters out off-topic results that
+# happen to mention a vague keyword (e.g. "drug" = illegal drugs, slang).
+_PHARMA_SIGNALS = frozenset({
+    # Disease / therapeutic area
+    "cancer", "tumor", "tumour", "oncology", "leukemia", "leukaemia",
+    "lymphoma", "melanoma", "myeloma", "carcinoma", "glioblastoma",
+    "nsclc", "sclc", "diabetes", "cardiovascular", "alzheimer",
+    "parkinson", "psoriasis", "rheumatoid", "multiple sclerosis", "rare disease",
+    # Treatment / clinical
+    "immunotherapy", "chemotherapy", "radiotherapy", "radiation therapy",
+    "clinical trial", "randomized", "placebo", "biomarker",
+    "overall survival", "progression-free", "adverse event",
+    "pd-l1", "pd-1", "her2", "egfr", "alk", "braf", "kras", "brca",
+    "biologic", "biosimilar", "monoclonal antibody",
+    # Regulatory / industry
+    "fda", "pharmaceutical", "pharma", "drug approval", "drug development",
+    "medical affairs", "real-world evidence", "health technology", "market access",
+    # Company names
+    "roche", "novartis", "pfizer", "bayer", "sanofi", "astrazeneca",
+    "genentech", "merck", "bristol myers", "gilead", "amgen",
+    "abbvie", "regeneron", "eli lilly", "moderna",
+    # Brand drugs (oncology focus)
+    "keytruda", "opdivo", "tecentriq", "herceptin", "avastin",
+    "osimertinib", "alectinib", "pembrolizumab", "nivolumab", "atezolizumab",
+    "palbociclib", "ribociclib", "ibrutinib", "venetoclax", "rituximab",
+    # Congresses
+    "asco", "esmo", "aacr", "sitc",
+    # Healthcare context
+    "oncologist", "hematologist", "patient outcomes", "health outcomes",
+})
+
+
+def _is_pharma_relevant(post: dict) -> bool:
+    """Return True if the post has any pharma/medical signal in text, hashtags, or topic."""
+    text = " ".join(filter(None, [
+        post.get("text") or "",
+        " ".join(post.get("hashtags") or []),
+        post.get("author") or "",
+        post.get("topic") or "",
+    ])).lower()
+    return any(sig in text for sig in _PHARMA_SIGNALS)
+
 from app.tasks.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
@@ -73,30 +117,46 @@ async def _run_scan() -> dict:
         s = await sess.get(AppSettings, 1)
         keywords = json.loads(s.social_keywords) if s and s.social_keywords else []
         platforms = json.loads(s.social_platforms) if s and s.social_platforms else \
-            ["instagram", "twitter", "tiktok", "facebook"]
+            ["instagram", "twitter", "linkedin", "facebook"]
         window = s.social_window_days if s else 180
         max_per_query = s.social_max_per_query if s else 30
         include_kols = s.social_include_kols if s else True
         fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
 
+        # List of (search_term, platform_hint) for KOL scanning.
+        # Prefer twitter_handle over name for Twitter (more precise); name is used as fallback.
         kol_names: list[str] = []
+        kol_twitter_handles: list[str] = []
         if include_kols:
-            rows = await sess.execute(select(Target.name).where(Target.active == True))  # noqa: E712
-            kol_names = [r[0] for r in rows.all()]
+            rows = await sess.execute(
+                select(Target.name, Target.twitter_handle).where(Target.active == True)  # noqa: E712
+            )
+            for name, handle in rows.all():
+                kol_names.append(name)
+                if handle:
+                    kol_twitter_handles.append(handle.lstrip("@"))
+                else:
+                    kol_twitter_handles.append(name)
 
     # Facebook uses page URLs, not keywords — handle it as one separate job.
     # All other platforms use keyword/hashtag terms.
     non_fb = [p for p in platforms if p != "facebook"]
-    HASHTAG_PLATFORMS = {"instagram", "tiktok"}
+    HASHTAG_PLATFORMS = {"instagram"}
 
     terms: list[tuple[str, str, list[str]]] = []
     for kw in keywords:
         terms.append((kw, "field", non_fb))
-    for name in kol_names:
-        # KOL names: only keyword-search platforms (Twitter); hashtag platforms need handles
-        kol_platforms = [p for p in non_fb if p not in HASHTAG_PLATFORMS]
-        if kol_platforms:
-            terms.append((name, "kol", kol_platforms))
+    # For KOLs: use twitter_handle on Twitter (precise handle search), name on other platforms
+    kol_platforms = [p for p in non_fb if p not in HASHTAG_PLATFORMS]
+    if kol_platforms and kol_names:
+        twitter_in_kol = "twitter" in kol_platforms
+        other_kol_platforms = [p for p in kol_platforms if p != "twitter"]
+        for i, name in enumerate(kol_names):
+            handle = kol_twitter_handles[i] if i < len(kol_twitter_handles) else name
+            if twitter_in_kol:
+                terms.append((handle, "kol", ["twitter"]))
+            if other_kol_platforms:
+                terms.append((name, "kol", other_kol_platforms))
 
     # One Facebook job using all configured page URLs (if FB is enabled and URLs set)
     fb_job = "facebook" in platforms and bool(fb_page_urls)
@@ -131,6 +191,10 @@ async def _run_scan() -> dict:
             )
         local_inserted = 0
         for post in posts:
+            post["topic"] = term  # ensure topic is set before relevance check
+            if not _is_pharma_relevant(post):
+                logger.debug("social_scan.filtered_irrelevant", platform=post.get("platform"), url=post.get("post_url", "")[:80])
+                continue
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"],
@@ -178,6 +242,53 @@ async def _run_scan() -> dict:
     return {"jobs": done_count, "inserted": inserted_count}
 
 
+def _expand_query(query: str) -> dict[str, list[str]]:
+    """Use LLM to generate platform-split search terms from a natural-language query.
+
+    Returns {"hashtags": [...], "keywords": [...]}:
+    - hashtags: no spaces, for Instagram (actor batches them in one call)
+    - keywords: phrases/terms for Twitter (OR-joined), LinkedIn, Facebook
+
+    Falls back to raw query on LLM failure.
+    """
+    import json as _json
+    from app.services.llm_router import call_llm
+
+    prompt = (
+        "You are a pharma social media intelligence expert.\n"
+        "Given a user's search query, generate search terms for social media scrapers.\n"
+        "Return ONLY a JSON object with two keys:\n"
+        '- "hashtags": 4-6 terms for Instagram (no spaces, no # prefix, camelCase or lowercase)\n'
+        '- "keywords": 4-6 terms for Twitter/LinkedIn/Facebook (can include spaces and phrases)\n\n'
+        "Focus on: drug names, disease names, company names, treatment types, congress names, patient communities.\n\n"
+        "Examples:\n"
+        '- "roche" → {"hashtags": ["Roche", "RocheOncology", "genentech", "pharma"], '
+        '"keywords": ["Roche", "Roche oncology", "Genentech", "pharma news"]}\n'
+        '- "lung cancer treatment" → {"hashtags": ["lungcancer", "NSCLC", "immunotherapy", "cancertreatment"], '
+        '"keywords": ["lung cancer", "NSCLC", "immunotherapy", "cancer treatment"]}\n'
+        '- "Tecentriq" → {"hashtags": ["Tecentriq", "atezolizumab", "pdl1", "immunotherapy"], '
+        '"keywords": ["Tecentriq", "atezolizumab", "PD-L1 cancer"]}\n'
+        '- "ASCO 2025" → {"hashtags": ["ASCO2025", "ASCO", "oncology2025"], '
+        '"keywords": ["ASCO 2025", "ASCO annual meeting", "oncology conference"]}\n\n'
+        f'Query: "{query}"'
+    )
+    fallback = {"hashtags": [query], "keywords": [query]}
+    try:
+        reply = call_llm([{"role": "user", "content": prompt}], temperature=0.0, max_tokens=120)
+        reply = reply.strip()
+        if "```" in reply:
+            reply = reply.split("```")[1].lstrip("json").strip()
+        parsed = _json.loads(reply)
+        if isinstance(parsed, dict):
+            ht = [t.strip() for t in parsed.get("hashtags", []) if isinstance(t, str) and t.strip()][:6]
+            kw = [t.strip() for t in parsed.get("keywords", []) if isinstance(t, str) and t.strip()][:6]
+            if ht or kw:
+                return {"hashtags": ht or [query], "keywords": kw or [query]}
+    except Exception as exc:
+        logger.warning("discover_fetch.expand_failed", query=query, exc=str(exc)[:120])
+    return fallback
+
+
 _DISCOVER_STATUS_KEY = "social_discover:status:{q}"
 
 
@@ -223,29 +334,45 @@ async def _run_discover(query: str) -> dict:
     async with CelerySessionLocal() as sess:
         s = await sess.get(AppSettings, 1)
         platforms = json.loads(s.social_platforms) if s and s.social_platforms else \
-            ["instagram", "twitter", "tiktok", "facebook"]
+            ["instagram", "twitter", "linkedin", "facebook"]
         window = s.social_window_days if s else 180
-
-    # Discovery is interactive — keep the per-platform pull small for latency/cost.
-    per_platform = 12
-    _set_discover_status(query, running=True, error=None, inserted=0)
-    logger.info("discover_fetch.start", query=query, platforms=platforms)
+        fb_page_urls = json.loads(s.facebook_page_urls) if s and s.facebook_page_urls else []
 
     loop = asyncio.get_running_loop()
-    # Fire all platforms concurrently so total latency ≈ one actor, not the sum.
-    results = await asyncio.gather(*[
-        loop.run_in_executor(
-            None,
-            lambda p=p: apify_client.fetch_platform(p, query, max_results=per_platform, window_days=window),
-        )
-        for p in platforms
-    ], return_exceptions=True)
 
+    # LLM understands the query and generates platform-appropriate search terms
+    expanded = await loop.run_in_executor(None, lambda: _expand_query(query))
+    hashtags = expanded["hashtags"]
+    keywords = expanded["keywords"]
+    logger.info("discover_fetch.start", query=query, hashtags=hashtags, keywords=keywords)
+    _set_discover_status(query, running=True, error=None, inserted=0,
+                         terms=list(dict.fromkeys(hashtags + keywords)))  # deduped union for UI
+
+    # One actor call per platform with all terms batched — same cost as a single-term search
+    async def _fetch_platform(p: str) -> list[dict]:
+        return await loop.run_in_executor(
+            None,
+            lambda: apify_client.fetch_platform_expanded(
+                p, hashtags, keywords,
+                max_results=30, window_days=window,
+                page_urls=fb_page_urls if p == "facebook" else None,
+            ),
+        )
+
+    fetch_results = await asyncio.gather(
+        *[_fetch_platform(p) for p in platforms],
+        return_exceptions=True,
+    )
+
+    # LLM-generated hashtags ARE the relevance gate — no additional pharma filter needed.
+    # We still deduplicate on content_hash via ON CONFLICT DO NOTHING.
     inserted = 0
-    for res in results:
-        if isinstance(res, Exception) or not res:
+    for posts in fetch_results:
+        if isinstance(posts, Exception) or not posts:
             continue
-        for post in res:
+        for post in posts:
+            # Tag with primary keyword as topic for display in trend chips
+            post["topic"] = keywords[0] if keywords else query
             ch = sha256_hash(post["post_url"])
             stmt = pg_insert(SocialPost).values(
                 platform=post["platform"], post_url=post["post_url"],
@@ -254,7 +381,7 @@ async def _run_discover(query: str) -> dict:
                 likes=post.get("likes", 0), comments=post.get("comments", 0),
                 views=post.get("views", 0), shares=post.get("shares", 0),
                 hashtags=json.dumps(post.get("hashtags", [])),
-                query=query, kind="field", topic=query,
+                query=query, kind="field", topic=post["topic"],
                 posted_at=post.get("posted_at"), content_hash=ch,
             ).on_conflict_do_nothing(index_elements=["content_hash"])
             async with CelerySessionLocal() as wsess:
@@ -266,6 +393,7 @@ async def _run_discover(query: str) -> dict:
                 except Exception:
                     await wsess.rollback()
 
-    _set_discover_status(query, running=False, inserted=inserted)
-    logger.info("discover_fetch.done", query=query, inserted=inserted)
-    return {"inserted": inserted}
+    all_terms = list(dict.fromkeys(hashtags + keywords))
+    _set_discover_status(query, running=False, inserted=inserted, terms=all_terms)
+    logger.info("discover_fetch.done", query=query, inserted=inserted, terms=all_terms)
+    return {"inserted": inserted, "terms": all_terms}

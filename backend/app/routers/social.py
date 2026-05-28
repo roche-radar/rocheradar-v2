@@ -49,7 +49,7 @@ def _to_out(p: SocialPost, now: datetime) -> dict:
         "views": p.views or 0,
         "shares": p.shares or 0,
         "hashtags": json.loads(p.hashtags) if p.hashtags else [],
-        "topic": p.topic,
+        "topic": p.topic or p.query or "other",
         "kind": p.kind,
         "posted_at": p.posted_at.isoformat() if p.posted_at else None,
         "trend_score": _trend_score(p, now),

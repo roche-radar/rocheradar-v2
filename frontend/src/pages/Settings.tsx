@@ -346,7 +346,7 @@ export default function SettingsPage() {
 const SOCIAL_PLATFORMS = [
   { value: "instagram", label: "Instagram" },
   { value: "twitter",   label: "X / Twitter" },
-  { value: "tiktok",    label: "TikTok" },
+  { value: "linkedin",  label: "LinkedIn" },
   { value: "facebook",  label: "Facebook" },
 ];
 
@@ -377,7 +377,7 @@ function SocialScanCard({ form, set, apifyConfigured }: {
 
   return (
     <Card icon={<Flame size={16} />} title="Social Trend Scan"
-      subtitle="Scrape Instagram, X, TikTok & Facebook via Apify for trending medical / Roche topics">
+      subtitle="Scrape Instagram, X, LinkedIn & Facebook via Apify for trending medical / Roche topics">
 
       {!apifyConfigured && (
         <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400

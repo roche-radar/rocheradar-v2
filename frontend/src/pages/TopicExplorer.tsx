@@ -184,7 +184,7 @@ export default function TopicExplorer() {
           {submitted && (
             <button onClick={() => socialSearchMut.mutate()}
               disabled={!apifyOn || socialSearching || socialSearchMut.isPending}
-              title={apifyOn ? "Search social media (Instagram, X, TikTok, Facebook) via Apify" : "Set APIFY_API_TOKEN to enable social search"}
+              title={apifyOn ? "Search social media (Instagram, X, LinkedIn, Facebook) via Apify" : "Set APIFY_API_TOKEN to enable social search"}
               className="h-9 px-3 border border-orange-400/50 hover:border-orange-500 text-orange-600 dark:text-orange-400 hover:bg-orange-500/5 text-sm font-semibold rounded-lg flex items-center gap-1.5 transition-all shrink-0 disabled:opacity-40">
               {socialSearching
                 ? <RefreshCw size={14} className="animate-spin"/>
@@ -347,7 +347,7 @@ export default function TopicExplorer() {
                   icon={<Flame size={15} className="text-orange-500"/>}
                   title="Social Trends"
                   subtitle={socialSearching
-                    ? "Pulling latest from Instagram, X, TikTok & Facebook…"
+                    ? "Pulling latest from Instagram, X, LinkedIn & Facebook…"
                     : `${socialPosts.length} post${socialPosts.length!==1?"s":""} across social platforms`}
                   accent="amber"
                   loading={socialSearching && socialPosts.length === 0}
@@ -483,7 +483,7 @@ export default function TopicExplorer() {
 const SOCIAL_PLATFORM_CLS: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
   twitter: "bg-sky-100 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300",
-  tiktok: "bg-slate-200 text-slate-800 dark:bg-slate-700/40 dark:text-slate-200",
+  linkedin: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200",
   facebook: "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300",
 };
 

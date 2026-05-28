@@ -8,15 +8,17 @@ export default function Targets() {
   const qc = useQueryClient();
   const { data: targets, isLoading } = useQuery({ queryKey: ["targets"], queryFn: api.targets.list });
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: "", known_urls: "", notes: "" });
+  const [form, setForm] = useState({ name: "", known_urls: "", notes: "", twitter_handle: "", linkedin_url: "" });
 
   const createMut = useMutation({
     mutationFn: () => api.targets.create({
       name: form.name,
       known_urls: form.known_urls.split("\n").map((u) => u.trim()).filter(Boolean),
       notes: form.notes || null,
+      twitter_handle: form.twitter_handle.trim() || null,
+      linkedin_url: form.linkedin_url.trim() || null,
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["targets"] }); setShowAdd(false); setForm({ name: "", known_urls: "", notes: "" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["targets"] }); setShowAdd(false); setForm({ name: "", known_urls: "", notes: "", twitter_handle: "", linkedin_url: "" }); },
   });
 
   const toggleMut = useMutation({
@@ -67,12 +69,26 @@ export default function Targets() {
               className="w-full px-3 py-2 border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-sm bg-transparent"
             />
             <textarea
-              placeholder="Known URLs / handles (one per line)"
+              placeholder="Known URLs (one per line)"
               value={form.known_urls}
               onChange={(e) => setForm((f) => ({ ...f, known_urls: e.target.value }))}
-              rows={3}
+              rows={2}
               className="w-full px-3 py-2 border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-sm bg-transparent resize-none"
             />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                placeholder="X/Twitter handle (e.g. @DrSmith)"
+                value={form.twitter_handle}
+                onChange={(e) => setForm((f) => ({ ...f, twitter_handle: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-sm bg-transparent"
+              />
+              <input
+                placeholder="LinkedIn URL (optional)"
+                value={form.linkedin_url}
+                onChange={(e) => setForm((f) => ({ ...f, linkedin_url: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-sm bg-transparent"
+              />
+            </div>
             <input
               placeholder="Notes (optional)"
               value={form.notes}
@@ -100,7 +116,7 @@ export default function Targets() {
             <thead>
               <tr className="border-b border-gray-100 dark:border-[#1e3a5f] text-left text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Known URLs</th>
+                <th className="px-4 py-3">X / LinkedIn</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 w-20"></th>
               </tr>
@@ -109,8 +125,12 @@ export default function Targets() {
               {targets?.map((t) => (
                 <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-[#1e2d4a]">
                   <td className="px-4 py-3 font-medium">{t.name}</td>
-                  <td className="px-4 py-3 text-gray-500 max-w-xs truncate">
-                    {t.known_urls.length ? `${t.known_urls.length} URL(s)` : "—"}
+                  <td className="px-4 py-3 text-gray-500 text-xs max-w-xs">
+                    <div className="flex flex-col gap-0.5">
+                      {t.twitter_handle && <span className="truncate">𝕏 {t.twitter_handle}</span>}
+                      {t.linkedin_url && <span className="truncate text-blue-500">in</span>}
+                      {!t.twitter_handle && !t.linkedin_url && <span className="text-gray-300">—</span>}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs ${t.active ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"}`}>

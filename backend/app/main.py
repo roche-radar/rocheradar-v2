@@ -105,24 +105,41 @@ async def _seed_defaults() -> None:
         # (keyword search doesn't work on FB without auth; page-URL scraping does).
         if s and not s.facebook_page_urls:
             default_fb_pages = [
-                # Major pharma companies
+                # Roche / Genentech
                 "https://www.facebook.com/roche",
+                "https://www.facebook.com/Genentech",
+                # Major pharma companies
                 "https://www.facebook.com/Novartis",
                 "https://www.facebook.com/pfizer",
                 "https://www.facebook.com/AstraZenecaGlobal",
                 "https://www.facebook.com/BristolMyersSquibb",
                 "https://www.facebook.com/merck",
+                "https://www.facebook.com/bayer",
+                "https://www.facebook.com/sanofi",
                 "https://www.facebook.com/abbvie",
-                "https://www.facebook.com/Genentech",
-                # Cancer / oncology orgs
+                "https://www.facebook.com/LillyOncology",
+                "https://www.facebook.com/amgen",
+                "https://www.facebook.com/GileadSciences",
+                "https://www.facebook.com/regeneron",
+                "https://www.facebook.com/JanssenGlobal",
+                # Oncology congresses & organisations
+                "https://www.facebook.com/ASCO.org",
+                "https://www.facebook.com/esmo.oncology",
+                "https://www.facebook.com/AACRcancer",
+                # Cancer patient communities
                 "https://www.facebook.com/AmericanCancerSociety",
                 "https://www.facebook.com/CancerResearchUK",
                 "https://www.facebook.com/LUNGevity",
-                "https://www.facebook.com/LLS",
-                # MS / neurology
+                "https://www.facebook.com/LLS",         # Leukemia & Lymphoma Society
+                "https://www.facebook.com/IMFmyeloma",  # Multiple Myeloma
+                "https://www.facebook.com/breastcancer.org",
+                # Neurology / rare disease
                 "https://www.facebook.com/nationalMSsociety",
-                # General health / regulatory
+                "https://www.facebook.com/alzassociation",
+                "https://www.facebook.com/NationalHemophiliaFoundation",
+                # Health agencies
                 "https://www.facebook.com/NIH.gov",
+                "https://www.facebook.com/FDA",
                 "https://www.facebook.com/WHO",
             ]
             s.facebook_page_urls = json.dumps(default_fb_pages)
@@ -132,13 +149,23 @@ async def _seed_defaults() -> None:
         # Seed a starter social-scan keyword list if none set yet
         if s and not s.social_keywords:
             default_keywords = [
-                # Roche / Genentech drugs
+                # Roche / Genentech brands
                 "Tecentriq", "Ocrevus", "Hemlibra", "Kadcyla", "Perjeta",
-                "Avastin", "Herceptin", "Polivy", "Lunsumio", "Roche",
-                # Medical field / disease areas / treatments
-                "oncology", "lungcancer", "NSCLC", "breastcancer", "immunotherapy",
-                "multiplesclerosis", "hemophilia", "clinicaltrial", "biomarker",
-                "cancertreatment",
+                "Avastin", "Herceptin", "Polivy", "Lunsumio", "Roche", "Genentech",
+                # Key competitor drugs (important for pharma intelligence)
+                "Keytruda", "Opdivo", "Imfinzi", "Libtayo",
+                # Oncology disease areas
+                "lungcancer", "NSCLC", "breastcancer", "colorectalcancer",
+                "lymphoma", "leukemia", "multiplemyeloma", "melanoma",
+                # Treatments / mechanisms
+                "immunotherapy", "PDL1", "HER2", "EGFR", "BRCA", "CDK46",
+                "cancertreatment", "clinicaltrial", "biomarker",
+                # Patient community hashtags
+                "cancersurvivor", "cancerwarrior", "cancerawareness", "patientadvocacy",
+                # Neurology / rare disease
+                "multiplesclerosis", "hemophilia", "raredisease",
+                # Congresses
+                "ASCO2025", "ESMO2025", "AACR2025",
             ]
             s.social_keywords = json.dumps(default_keywords)
             await sess.commit()

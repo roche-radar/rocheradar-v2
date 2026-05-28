@@ -15,6 +15,8 @@ class Target(Base):
     known_urls: Mapped[str | None] = mapped_column(Text, default="[]")
     notes: Mapped[str | None] = mapped_column(Text)
     disease_area: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    twitter_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)  # e.g. @DrJohnSmith
+    linkedin_url: Mapped[str | None] = mapped_column(String(512), nullable=True)    # full profile URL
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

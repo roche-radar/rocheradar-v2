@@ -21,17 +21,17 @@ export default function SocialPage() {
   const running = status?.running;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Header bar */}
+      <div className="flex-none flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-slate-200/50 dark:border-white/10 glass-panel">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-            <Flame size={22} className="text-orange-500" />
+            <Flame size={20} className="text-orange-500" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Social Trends</h1>
-            <p className="text-sm text-gray-500 dark:text-[#94a3b8]">
-              What's trending across Instagram, X, TikTok & Facebook for medical / Roche topics.
+            <h1 className="text-lg font-bold text-roche-blue dark:text-[#e2e8f0]">Social Trends</h1>
+            <p className="text-xs text-gray-500 dark:text-[#94a3b8]">
+              What's trending on Instagram, X, LinkedIn & Facebook for medical / Roche topics.
             </p>
           </div>
         </div>
@@ -47,12 +47,15 @@ export default function SocialPage() {
       </div>
 
       {apifyOff && (
-        <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2.5">
-          Apify isn't configured — set <code className="font-mono">APIFY_API_TOKEN</code> in <code className="font-mono">.env</code> to enable scanning. Configure keywords & platforms in Settings.
+        <div className="flex-none text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800/40 px-6 py-2.5">
+          Apify isn't configured — set <code className="font-mono">APIFY_API_TOKEN</code> in <code className="font-mono">.env</code> to enable scanning.
         </div>
       )}
 
-      <SocialTrends />
+      {/* SocialTrends fills remaining height */}
+      <div className="flex-1 min-h-0 overflow-hidden p-5">
+        <SocialTrends />
+      </div>
     </div>
   );
 }

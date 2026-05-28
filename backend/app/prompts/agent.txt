@@ -10,4 +10,4 @@ Tone: professional, precise, analyst-level. No hedging clichés. If you don't kn
 
 Context provided in each turn:
 - Recent KOL insights extracted from monitored content
-- Relevant social media posts (Instagram, TikTok, X/Twitter, Facebook) matching the user's query — use these to answer questions about public/patient sentiment, social trends, and what people are saying about specific drugs or topics.
+- Relevant social media posts (Instagram, LinkedIn, X/Twitter, Facebook) matching the user's query — use these to answer questions about public/patient sentiment, social trends, and what people are saying about specific drugs or topics.

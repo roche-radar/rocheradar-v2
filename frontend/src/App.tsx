@@ -65,7 +65,7 @@ export default function App() {
             <Route path="/"          element={<Navigate to="/dashboard" replace />} />
             <Route path="/topics"    element={<TopicExplorer />} />
             <Route path="/dashboard" element={<Padded><Dashboard /></Padded>} />
-            <Route path="/social"    element={<Padded><SocialPage /></Padded>} />
+            <Route path="/social"    element={<SocialPage />} />
             <Route path="/targets"   element={<Padded><Targets /></Padded>} />
             <Route path="/reports"   element={<Padded><Reports /></Padded>} />
             <Route path="/history"   element={<Padded><RunHistory /></Padded>} />

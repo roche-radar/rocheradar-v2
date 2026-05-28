@@ -36,7 +36,7 @@ _SOCIAL_DOMAINS = {
     "youtu.be": "video",
     "instagram.com": "social",
     "facebook.com": "social",
-    "tiktok.com": "social",
+    "linkedin.com": "social",
     "reddit.com": "social",
     "researchgate.net": "research",
     "academia.edu": "research",

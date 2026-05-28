@@ -46,8 +46,8 @@ class AppSettings(Base):
     llm_budget_hard_stop: Mapped[int] = mapped_column(Integer, default=500)
 
     # Social trend scan (Apify)
-    social_keywords: Mapped[str | None] = mapped_column(Text)            # JSON list of hashtags/keywords for IG/TikTok/Twitter
-    social_platforms: Mapped[str] = mapped_column(String(256), default='["instagram","twitter","tiktok","facebook"]')
+    social_keywords: Mapped[str | None] = mapped_column(Text)            # JSON list of hashtags/keywords for IG/LinkedIn/Twitter
+    social_platforms: Mapped[str] = mapped_column(String(256), default='["instagram","twitter","linkedin","facebook"]')
     social_window_days: Mapped[int] = mapped_column(Integer, default=180)
     social_max_per_query: Mapped[int] = mapped_column(Integer, default=30)
     social_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

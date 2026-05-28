@@ -91,7 +91,7 @@ LIKELY_NEEDS_AGENT = {
     # Social media — require JS / login
     "twitter.com", "x.com", "linkedin.com", "instagram.com", "facebook.com",
     "threads.net", "bluesky.app", "bsky.app", "mastodon.social",
-    "reddit.com", "tiktok.com",
+    "reddit.com",
     # Paywalled journals
     "aacrjournals.org", "sciencedirect.com", "wiley.com", "onlinelibrary.wiley.com",
     "springer.com", "link.springer.com", "jamanetwork.com", "thelancet.com",

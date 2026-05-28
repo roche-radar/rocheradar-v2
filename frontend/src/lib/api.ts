@@ -23,6 +23,8 @@ export interface Target {
   notes: string | null;
   active: boolean;
   disease_area: string | null;
+  twitter_handle: string | null;
+  linkedin_url: string | null;
 }
 
 export interface RunOut {
@@ -100,7 +102,7 @@ export interface SocialPost {
   views: number;
   shares: number;
   hashtags: string[];
-  topic: string | null;
+  topic: string;
   kind: string;
   posted_at: string | null;
   trend_score: number;
@@ -270,7 +272,7 @@ export const api = {
         `/social/discover?q=${encodeURIComponent(q)}&fresh=${fresh}`
       ),
     discoverStatus: (q: string) =>
-      req<{ running: boolean; inserted?: number; error?: string }>(
+      req<{ running: boolean; inserted?: number; error?: string; terms?: string[] }>(
         `/social/discover/status?q=${encodeURIComponent(q)}`
       ),
   },

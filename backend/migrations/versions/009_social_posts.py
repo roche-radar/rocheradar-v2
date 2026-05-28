@@ -56,7 +56,7 @@ def upgrade():
     cols = {
         "social_keywords": sa.Column("social_keywords", sa.Text(), nullable=True),
         "social_platforms": sa.Column("social_platforms", sa.String(256),
-                                       server_default='["instagram","twitter","tiktok","facebook"]'),
+                                       server_default='["instagram","twitter","linkedin","facebook"]'),
         "social_window_days": sa.Column("social_window_days", sa.Integer(), server_default="180"),
         "social_max_per_query": sa.Column("social_max_per_query", sa.Integer(), server_default="30"),
         "social_scan_enabled": sa.Column("social_scan_enabled", sa.Boolean(), server_default=sa.false()),

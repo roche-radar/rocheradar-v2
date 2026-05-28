@@ -1,13 +1,19 @@
 """Apify social-media scraping service.
 
 TinyFish handles the open web; Apify handles social platforms (Instagram, X,
-TikTok, Facebook) where TinyFish can't reach. Each platform has a purpose-built
+LinkedIn, Facebook) where TinyFish can't reach. Each platform has a purpose-built
 Apify Actor whose output we normalize into one common post shape with real
 engagement counts (likes / comments / views / shares).
 
 Actor output schemas differ per platform and change over time, so every
 normalizer reads each field through a tolerant multi-key lookup and never
 raises on a missing key — a malformed item is skipped, not fatal.
+
+Platform notes:
+- Twitter: microworlds/twitter-scraper uses browser automation — survives X API lockdowns.
+- LinkedIn: requires a LinkedIn session cookie in Apify actor settings (auth-gated).
+- Facebook: apify/facebook-search-scraper for keyword search; apify/facebook-posts-scraper
+  when curated page_urls are provided (more precise for known pharma pages).
 """
 from __future__ import annotations
 
@@ -22,17 +28,17 @@ from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
-# Default Actors per platform.
-# Twitter: quacker/twitter-scraper — reliable keyword/hashtag search (6M+ runs).
-# Facebook: apify/facebook-posts-scraper requires startUrls (known page URLs), not keyword
-#   search. Page URLs are curated in app_settings.facebook_page_urls and seeded with major
-#   pharma/oncology pages. The scan task passes them via the page_urls parameter.
 ACTORS = {
     "instagram": "apify/instagram-hashtag-scraper",
-    "twitter":   "quacker/twitter-scraper",
-    "tiktok":    "clockworks/tiktok-scraper",
+    # microworlds uses browser automation — survives X API lockdowns that kill API-based scrapers
+    "twitter":   "microworlds/twitter-scraper",
+    # requires LinkedIn session cookie configured in the Apify actor settings
+    "linkedin":  "apify/linkedin-post-search-scraper",
+    # used only when curated page_urls are provided; keyword fallback uses _ACTOR_FB_SEARCH
     "facebook":  "apify/facebook-posts-scraper",
 }
+# Keyword-based FB search (no page URLs needed); used when page_urls not configured
+_ACTOR_FB_SEARCH = "apify/facebook-search-scraper"
 
 _HASHTAG_RE = re.compile(r"#(\w+)")
 
@@ -147,23 +153,23 @@ def _norm_twitter(item: dict) -> dict | None:
     }
 
 
-def _norm_tiktok(item: dict) -> dict | None:
-    url = _first(item, "webVideoUrl", "url", "postPage")
+def _norm_linkedin(item: dict) -> dict | None:
+    url = _first(item, "postUrl", "url", "shareUrl")
     if not url:
         return None
-    text = _first(item, "text", "description", "desc")
+    text = _first(item, "text", "commentary", "content")
     return {
-        "platform": "tiktok",
+        "platform": "linkedin",
         "post_url": url,
-        "author": _first(item, "authorMeta.name", "authorMeta.nickName", "author.uniqueId"),
+        "author": _first(item, "authorName", "actorName", "author.name", "author.firstName"),
         "text": text,
-        "thumbnail_url": _first(item, "videoMeta.coverUrl", "covers.0", "videoMeta.originalCoverUrl"),
-        "likes": _int(_first(item, "diggCount", "likes")),
-        "comments": _int(_first(item, "commentCount", "comments")),
-        "views": _int(_first(item, "playCount", "views")),
-        "shares": _int(_first(item, "shareCount", "shares")),
+        "thumbnail_url": _first(item, "image", "thumbnailUrl", "imageUrl"),
+        "likes": _int(_first(item, "numLikes", "likesCount", "reactionCount")),
+        "comments": _int(_first(item, "numComments", "commentsCount")),
+        "views": _int(_first(item, "numImpressions", "impressionCount")),
+        "shares": _int(_first(item, "numReposts", "repostsCount", "sharesCount")),
         "hashtags": _hashtags(item, text),
-        "posted_at": _parse_dt(_first(item, "createTimeISO", "createTime")),
+        "posted_at": _parse_dt(_first(item, "postedAt", "createdAt", "publishedAt", "date")),
     }
 
 
@@ -192,7 +198,7 @@ def _norm_facebook(item: dict) -> dict | None:
 _NORMALIZERS = {
     "instagram": _norm_instagram,
     "twitter":   _norm_twitter,
-    "tiktok":    _norm_tiktok,
+    "linkedin":  _norm_linkedin,
     "facebook":  _norm_facebook,
 }
 
@@ -211,19 +217,14 @@ def _build_input(platform: str, term: str, max_results: int, since: str | None) 
     if platform == "instagram":
         return {"hashtags": [tag], "resultsType": "posts", "resultsLimit": max_results}
     if platform == "twitter":
-        # quacker/twitter-scraper input schema
-        inp: dict = {"searchTerms": [term], "tweetsDesiredCount": max_results, "sort": "Top"}
-        if since:
-            inp["startDate"] = since
-        return inp
-    if platform == "tiktok":
-        return {"hashtags": [tag], "resultsPerPage": max_results,
-                "shouldDownloadVideos": False, "shouldDownloadCovers": False}
+        # microworlds/twitter-scraper input schema
+        return {"searchTerms": [term], "maxItems": max_results}
+    if platform == "linkedin":
+        # apify/linkedin-post-search-scraper — keywords as array
+        return {"keywords": [term], "resultsLimit": max_results}
     if platform == "facebook":
-        # apify/facebook-posts-scraper requires known page URLs, not keyword search.
-        # page_urls is injected at call time from app_settings.facebook_page_urls.
-        # If no URLs provided the caller skips this platform.
-        return {}  # populated by fetch_platform when page_urls is passed
+        # populated by fetch_platform depending on whether page_urls are available
+        return {}
     return {}
 
 
@@ -233,35 +234,145 @@ def is_configured() -> bool:
     return bool(get_settings().apify_api_token)
 
 
+def fetch_platform_expanded(
+    platform: str,
+    hashtags: list[str],
+    keywords: list[str],
+    max_results: int = 30,
+    window_days: int = 180,
+    timeout_secs: int = 180,
+    page_urls: list[str] | None = None,
+) -> list[dict]:
+    """Like fetch_platform but accepts pre-expanded term lists.
+
+    Instagram  — all hashtags in one actor call (actor supports list).
+    Twitter    — keywords joined with OR into a single search query.
+    LinkedIn   — primary keyword.
+    Facebook   — page_urls scraper when available, else keyword search.
+    """
+    token = get_settings().apify_api_token
+    if not token:
+        logger.warning("apify.no_token")
+        return []
+    normalizer = _NORMALIZERS.get(platform)
+    if not normalizer:
+        logger.warning("apify.unknown_platform", platform=platform)
+        return []
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+
+    if platform == "instagram":
+        actor_id = ACTORS["instagram"]
+        # Actor accepts a list — batch all hashtags in one run (cheaper than N runs)
+        tags = [re.sub(r"\s+", "", t.lstrip("#@")) for t in hashtags if t.strip()]
+        if not tags:
+            return []
+        run_input = {"hashtags": tags, "resultsType": "posts", "resultsLimit": max_results}
+
+    elif platform == "twitter":
+        actor_id = ACTORS["twitter"]
+        # OR-join keywords into one search query; Twitter search natively supports OR
+        terms_clean = [t.strip() for t in keywords if t.strip()][:4]
+        combined = " OR ".join(f'"{t}"' if " " in t else t for t in terms_clean)
+        run_input = {"searchTerms": [combined], "maxItems": max_results}
+
+    elif platform == "linkedin":
+        actor_id = ACTORS["linkedin"]
+        kw = (keywords[0] if keywords else (hashtags[0] if hashtags else "")).strip()
+        if not kw:
+            return []
+        run_input = {"keywords": [kw], "resultsLimit": max_results}
+
+    elif platform == "facebook":
+        if page_urls:
+            actor_id = ACTORS["facebook"]
+            run_input = {
+                "startUrls": [{"url": u} for u in page_urls],
+                "resultsLimit": max_results,
+                "scrapeAbout": False, "scrapeReviews": False, "scrapeServices": False,
+            }
+        else:
+            actor_id = _ACTOR_FB_SEARCH
+            kw = (keywords[0] if keywords else (hashtags[0] if hashtags else "")).strip()
+            if not kw:
+                return []
+            run_input = {"searchQuery": kw, "maxResults": max_results, "searchType": "posts"}
+    else:
+        logger.warning("apify.unknown_platform", platform=platform)
+        return []
+
+    try:
+        client = ApifyClient(token)
+        run = client.actor(actor_id).call(
+            run_input=run_input,
+            run_timeout=timedelta(seconds=timeout_secs),
+            max_items=max_results,
+        )
+        dataset_id = getattr(run, "default_dataset_id", None) if run else None
+        if not dataset_id:
+            logger.warning("apify.no_dataset", platform=platform)
+            return []
+        raw_items = client.dataset(dataset_id).list_items(limit=max_results).items
+    except Exception as exc:
+        logger.warning("apify.run_failed_expanded", platform=platform, exc=str(exc)[:200])
+        return []
+
+    posts: list[dict] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            post = normalizer(raw)
+        except Exception:
+            continue
+        if not post:
+            continue
+        if post["posted_at"] and post["posted_at"] < cutoff:
+            continue
+        posts.append(post)
+
+    logger.info("apify.fetched_expanded", platform=platform, count=len(posts))
+    return posts
+
+
 def fetch_platform(platform: str, term: str, max_results: int = 30,
                    window_days: int = 180, timeout_secs: int = 180,
                    page_urls: list[str] | None = None) -> list[dict]:
-    """Run one platform Actor. For IG/TikTok/Twitter uses keyword `term`;
-    for Facebook uses curated `page_urls` (keyword search not supported on FB).
+    """Run one platform Actor.
     Returns normalized posts filtered to the last `window_days`. Never raises."""
     token = get_settings().apify_api_token
     if not token:
         logger.warning("apify.no_token")
         return []
-    actor_id = ACTORS.get(platform)
     normalizer = _NORMALIZERS.get(platform)
-    if not actor_id or not normalizer:
+    if not normalizer:
         logger.warning("apify.unknown_platform", platform=platform)
         return []
 
-    # Facebook uses page URLs, not keyword search
+    # Resolve actor and input per platform
     if platform == "facebook":
-        if not page_urls:
-            logger.info("apify.facebook_skipped_no_urls")
+        if page_urls:
+            # Curated page scraping — high-quality pharma pages
+            actor_id = ACTORS["facebook"]
+            run_input = {
+                "startUrls": [{"url": u} for u in page_urls],
+                "resultsLimit": max_results,
+                "scrapeAbout": False,
+                "scrapeReviews": False,
+                "scrapeServices": False,
+            }
+        elif term:
+            # Keyword search fallback — works without page URLs
+            actor_id = _ACTOR_FB_SEARCH
+            run_input = {"searchQuery": term, "maxResults": max_results, "searchType": "posts"}
+        else:
+            logger.info("apify.facebook_skipped_no_urls_no_term")
             return []
-        run_input = {
-            "startUrls": [{"url": u} for u in page_urls],
-            "resultsLimit": max_results,
-            "scrapeAbout": False,
-            "scrapeReviews": False,
-            "scrapeServices": False,
-        }
     else:
+        actor_id = ACTORS.get(platform)
+        if not actor_id:
+            logger.warning("apify.unknown_platform", platform=platform)
+            return []
         run_input = _build_input(platform, term, max_results,
                                  (datetime.now(timezone.utc) - timedelta(days=window_days)).date().isoformat())
 

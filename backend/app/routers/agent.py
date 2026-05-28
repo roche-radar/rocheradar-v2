@@ -18,7 +18,7 @@ _MAX_SOCIAL_CONTEXT = 15
 
 # Words that signal the user wants social/trend data
 _SOCIAL_KEYWORDS = re.compile(
-    r"\b(social|trend|trending|instagram|tiktok|twitter|facebook|post|hashtag|"
+    r"\b(social|trend|trending|instagram|linkedin|twitter|facebook|post|hashtag|"
     r"patient|public|people|saying|discuss|viral|engagement|likes|views)\b",
     re.IGNORECASE,
 )

@@ -117,7 +117,7 @@ def _to_out(s: AppSettings) -> SettingsOut:
         llm_budget_hard_stop=s.llm_budget_hard_stop,
         available_providers=PROVIDERS,
         social_keywords=_jlist(s.social_keywords, []),
-        social_platforms=_jlist(s.social_platforms, ["instagram", "twitter", "tiktok", "facebook"]),
+        social_platforms=_jlist(s.social_platforms, ["instagram", "twitter", "linkedin", "facebook"]),
         social_window_days=s.social_window_days if s.social_window_days is not None else 180,
         social_max_per_query=s.social_max_per_query if s.social_max_per_query is not None else 30,
         social_scan_enabled=bool(s.social_scan_enabled),
