@@ -502,6 +502,18 @@ class PDFService:
             )
             all_insights = ins_rows.all()
 
+            # Fallback: if nothing was extracted in the last 7 days (e.g. regenerating
+            # an old run from existing data), use all existing insights so the PDF is
+            # never empty when data exists — no re-scrape needed.
+            if not all_insights:
+                ins_rows = await sess.execute(
+                    select(ExtractedInsight, ScrapedPost, Target)
+                    .join(ScrapedPost, ExtractedInsight.scraped_post_id == ScrapedPost.id)
+                    .join(Target, ExtractedInsight.target_id == Target.id)
+                    .order_by(Target.name, ExtractedInsight.extracted_at)
+                )
+                all_insights = ins_rows.all()
+
             # Latest PersonSummary per target
             sum_rows = await sess.execute(
                 select(PersonSummary).order_by(PersonSummary.generated_at.desc())
@@ -709,7 +721,7 @@ class PDFService:
                 "Use the real [id] values above.\n\n"
                 "Reference real drug names and KOLs. Be specific."
             )
-            raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1200)
+            raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2500)
             parsed = parse_synthesis(raw)
         except Exception as exc:
             logger.warning("pdf.synthesis_failed", error=str(exc))

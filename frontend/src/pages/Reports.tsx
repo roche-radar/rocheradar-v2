@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Eye, FileText, X, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 type PdfFile = { path: string; name: string; size: number; url: string; uploadedAt?: string };
 
@@ -19,10 +19,17 @@ export default function Reports() {
     return [...d].sort().reverse();
   }, [pdfs]);
 
+  // Default to the most recent date so the page shows one day at a time (never all days at once)
+  useEffect(() => {
+    if (dates.length && !dates.includes(filterDate)) setFilterDate(dates[0]);
+  }, [dates, filterDate]);
+
   const genPdfsMut = useMutation({
     mutationFn: api.runs.generatePdfs,
     onSuccess: () => {
       setGenMsg("PDF generation started — new files will appear as they finish (this can take a minute).");
+      // Clear the date so the default effect jumps to the newest date once it's generated.
+      setFilterDate("");
       // Poll the list several times since generating all target PDFs takes longer than one refresh.
       [5000, 12000, 20000, 30000, 45000].forEach(d =>
         setTimeout(() => qc.invalidateQueries({ queryKey: ["pdfs"] }), d));
@@ -53,14 +60,16 @@ export default function Reports() {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0] mr-auto">Reports</h1>
         {dates.length > 0 && (
-          <select
-            value={filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-3 py-2 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
-          >
-            <option value="">All dates</option>
-            {dates.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Date</span>
+            <select
+              value={filterDate}
+              onChange={e => setFilterDate(e.target.value)}
+              className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg px-3 py-2 bg-white dark:bg-[#111827] text-gray-600 dark:text-[#94a3b8]"
+            >
+              {dates.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
         )}
         <button
           onClick={() => genPdfsMut.mutate()}

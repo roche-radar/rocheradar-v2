@@ -941,7 +941,7 @@ async def combined_synthesis(refresh: bool = False):
     takeaway = so_what = conclusion = ""
     focus: list[str] = []
     try:
-        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2000)
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=4000)
         _log.info("combined_synth.llm_raw", raw=raw[:400])
         takeaway = extract_section(raw, "TAKEAWAY")
         so_what = extract_section(raw, "SO_WHAT")

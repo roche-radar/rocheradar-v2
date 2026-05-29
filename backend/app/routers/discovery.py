@@ -702,7 +702,7 @@ async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db)):
     err = None
     parsed = {"takeaway": "", "so_what": "", "picks": []}
     try:
-        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1500)
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2500)
         parsed = parse_synthesis(raw)
     except Exception as exc:
         err = str(exc)[:300]

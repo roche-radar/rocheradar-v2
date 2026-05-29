@@ -228,6 +228,177 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Intelligence Analytics */}
+      <div className="glass rounded-xl">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-6 pt-6 pb-4 border-b border-slate-200/50 dark:border-slate-800/50">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
+              <BarChart2 size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+            </div>
+            <h2 className="font-semibold text-sm whitespace-nowrap">Intelligence Analytics</h2>
+          </div>
+          <div className="flex gap-1">
+            {PERIOD_OPTIONS.map((o) => (
+              <button key={o.value} onClick={() => setPeriod(o.value)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap",
+                  period === o.value
+                    ? "bg-roche-blue text-white"
+                    : "text-gray-500 hover:text-roche-light"
+                )}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {!hasTopics ? (
+          <div className="text-center py-12 text-gray-400 text-sm">
+            No insights yet — run the pipeline to populate analytics.
+          </div>
+        ) : (
+          <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Category bar chart */}
+            <div className="lg:col-span-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Most Discussed Topics — last {period} days
+                <span className="ml-2 text-roche-light font-bold">{topics.total} insights</span>
+              </p>
+              {/* onMouseDown preventDefault stops the SVG getting focus (black border) */}
+              <div onMouseDown={e => e.preventDefault()}>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={topics.categories} layout="vertical"
+                    margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                      itemStyle={{ color: '#e2e8f0' }}
+                      formatter={(v) => [`${v} insights`, ""]} 
+                    />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
+                      onClick={(data) => {
+                        if (data?.name) setChartPanel({ label: data.name, type: "category", value: data.name });
+                      }}
+                      animationDuration={1000}
+                    >
+                      {topics.categories.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Sentiment pie */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sentiment</p>
+              <div onMouseDown={e => e.preventDefault()}>
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie data={topics.sentiment} dataKey="count" nameKey="name"
+                      cx="50%" cy="50%" innerRadius={55} outerRadius={75}
+                      cursor="pointer"
+                      paddingAngle={3}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                      labelLine={false}
+                      animationDuration={1000}
+                      onClick={(entry) => {
+                        if (entry?.name) setChartPanel({ label: entry.name, type: "sentiment", value: entry.name });
+                      }}>
+                      {topics.sentiment.map((entry) => (
+                        <Cell key={entry.name}
+                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} 
+                          stroke="none"
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '12px', border: 'none', color: '#f1f5f9' }}
+                      formatter={(v) => [`${v} insights — click to view`, ""]} 
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Top KOLs bar */}
+            {topics.top_kols.length > 0 && (
+              <div className="lg:col-span-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Top KOLs by insights</p>
+                <div onMouseDown={e => e.preventDefault()}>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={topics.top_kols} layout="vertical"
+                      margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                      <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9' }}
+                        formatter={(v) => [`${v} insights`, ""]} 
+                      />
+                      <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} cursor="pointer"
+                        animationDuration={1000}
+                        onClick={(data) => {
+                          if (data?.name) setChartPanel({ label: data.name, type: "kol", value: data.name });
+                        }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Top topics list */}
+            {topics.top_topics.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Trending topics</p>
+                  {diseaseAreas.length > 0 && (
+                    <select
+                      value={diseaseFilter}
+                      onChange={e => setDiseaseFilter(e.target.value)}
+                      className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded px-2 py-0.5 bg-transparent text-gray-600 dark:text-[#94a3b8]"
+                    >
+                      <option value="all">All areas</option>
+                      {diseaseAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {topics.top_topics.slice(0, 8).map((t) => {
+                    const maxScore = topics.top_topics[0].trend_score || 1;
+                    const barWidth = Math.max(4, (t.trend_score / maxScore) * 100);
+                    return (
+                      <div key={t.topic}
+                        className="flex items-center gap-2 cursor-pointer group"
+                        onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
+                            {t.topic}
+                          </div>
+                          <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
+                            <div className="h-1.5 bg-roche-light rounded-full group-hover:bg-roche-blue transition-colors"
+                              style={{ width: `${barWidth}%` }} />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {t.likes > 0 && <span className="text-[10px] text-gray-400">♥{t.likes > 999 ? `${(t.likes/1000).toFixed(1)}k` : t.likes}</span>}
+                          <span className="text-xs font-semibold text-roche-light">{t.count}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Social trending analytics (compact) → full page at /social */}
+      <SocialTrendsSummary />
+
       {/* Daily Brief */}
       <div className="glass rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -448,176 +619,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Intelligence Analytics */}
-      <div className="glass rounded-xl">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-6 pt-6 pb-4 border-b border-slate-200/50 dark:border-slate-800/50">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
-              <BarChart2 size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
-            </div>
-            <h2 className="font-semibold text-sm whitespace-nowrap">Intelligence Analytics</h2>
-          </div>
-          <div className="flex gap-1">
-            {PERIOD_OPTIONS.map((o) => (
-              <button key={o.value} onClick={() => setPeriod(o.value)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap",
-                  period === o.value
-                    ? "bg-roche-blue text-white"
-                    : "text-gray-500 hover:text-roche-light"
-                )}>
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {!hasTopics ? (
-          <div className="text-center py-12 text-gray-400 text-sm">
-            No insights yet — run the pipeline to populate analytics.
-          </div>
-        ) : (
-          <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* Category bar chart */}
-            <div className="lg:col-span-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Most Discussed Topics — last {period} days
-                <span className="ml-2 text-roche-light font-bold">{topics.total} insights</span>
-              </p>
-              {/* onMouseDown preventDefault stops the SVG getting focus (black border) */}
-              <div onMouseDown={e => e.preventDefault()}>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={topics.categories} layout="vertical"
-                    margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                      itemStyle={{ color: '#e2e8f0' }}
-                      formatter={(v) => [`${v} insights`, ""]} 
-                    />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
-                      onClick={(data) => {
-                        if (data?.name) setChartPanel({ label: data.name, type: "category", value: data.name });
-                      }}
-                      animationDuration={1000}
-                    >
-                      {topics.categories.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Sentiment pie */}
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sentiment</p>
-              <div onMouseDown={e => e.preventDefault()}>
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie data={topics.sentiment} dataKey="count" nameKey="name"
-                      cx="50%" cy="50%" innerRadius={55} outerRadius={75}
-                      cursor="pointer"
-                      paddingAngle={3}
-                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                      labelLine={false}
-                      animationDuration={1000}
-                      onClick={(entry) => {
-                        if (entry?.name) setChartPanel({ label: entry.name, type: "sentiment", value: entry.name });
-                      }}>
-                      {topics.sentiment.map((entry) => (
-                        <Cell key={entry.name}
-                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} 
-                          stroke="none"
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '12px', border: 'none', color: '#f1f5f9' }}
-                      formatter={(v) => [`${v} insights — click to view`, ""]} 
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Top KOLs bar */}
-            {topics.top_kols.length > 0 && (
-              <div className="lg:col-span-2">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Top KOLs by insights</p>
-                <div onMouseDown={e => e.preventDefault()}>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={topics.top_kols} layout="vertical"
-                      margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                      <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9' }}
-                        formatter={(v) => [`${v} insights`, ""]} 
-                      />
-                      <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} cursor="pointer"
-                        animationDuration={1000}
-                        onClick={(data) => {
-                          if (data?.name) setChartPanel({ label: data.name, type: "kol", value: data.name });
-                        }} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            {/* Top topics list */}
-            {topics.top_topics.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Trending topics</p>
-                  {diseaseAreas.length > 0 && (
-                    <select
-                      value={diseaseFilter}
-                      onChange={e => setDiseaseFilter(e.target.value)}
-                      className="text-xs border border-gray-200 dark:border-[#1e3a5f] rounded px-2 py-0.5 bg-transparent text-gray-600 dark:text-[#94a3b8]"
-                    >
-                      <option value="all">All areas</option>
-                      {diseaseAreas.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {topics.top_topics.slice(0, 8).map((t) => {
-                    const maxScore = topics.top_topics[0].trend_score || 1;
-                    const barWidth = Math.max(4, (t.trend_score / maxScore) * 100);
-                    return (
-                      <div key={t.topic}
-                        className="flex items-center gap-2 cursor-pointer group"
-                        onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
-                            {t.topic}
-                          </div>
-                          <div className="h-1.5 bg-gray-100 dark:bg-[#1e2d4a] rounded-full mt-1">
-                            <div className="h-1.5 bg-roche-light rounded-full group-hover:bg-roche-blue transition-colors"
-                              style={{ width: `${barWidth}%` }} />
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {t.likes > 0 && <span className="text-[10px] text-gray-400">♥{t.likes > 999 ? `${(t.likes/1000).toFixed(1)}k` : t.likes}</span>}
-                          <span className="text-xs font-semibold text-roche-light">{t.count}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Social trending analytics (compact) → full page at /social */}
-      <SocialTrendsSummary />
 
       {/* Recent insights feed */}
       <div>

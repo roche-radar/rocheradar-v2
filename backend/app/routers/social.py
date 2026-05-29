@@ -253,7 +253,7 @@ async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = Fal
     err = None
     parsed = {"takeaway": "", "so_what": "", "picks": []}
     try:
-        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=1500)
+        raw = call_pro([{"role": "user", "content": prompt}], max_tokens=2500)
         parsed = parse_synthesis(raw)
     except Exception as exc:
         err = str(exc)[:300]
