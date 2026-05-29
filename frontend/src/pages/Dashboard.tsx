@@ -177,6 +177,14 @@ export default function Dashboard() {
 
   const hasTopics = topics && topics.total > 0;
 
+  // Sentiment donut — dominant slice shown in the center
+  const sentTotal = (topics?.sentiment ?? []).reduce((s, x) => s + x.count, 0);
+  const dominantSent = sentTotal
+    ? [...topics!.sentiment].sort((a, b) => b.count - a.count)[0]
+    : null;
+  const sentColor = (name: string) =>
+    name === "Positive" ? "#22c55e" : name === "Negative" ? "#ef4444" : "#94a3b8";
+
   return (
     <>
     <div className="space-y-6">
@@ -276,10 +284,11 @@ export default function Dashboard() {
                     margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <Tooltip 
+                    <Tooltip
+                      cursor={{ fill: 'rgba(148,163,184,0.12)', radius: 4 }}
                       contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                       itemStyle={{ color: '#e2e8f0' }}
-                      formatter={(v) => [`${v} insights`, ""]} 
+                      formatter={(v) => [`${v} insights`, ""]}
                     />
                     <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
                       onClick={(data) => {
@@ -296,35 +305,59 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Sentiment pie */}
+            {/* Sentiment donut */}
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sentiment</p>
-              <div onMouseDown={e => e.preventDefault()}>
-                <ResponsiveContainer width="100%" height={240}>
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-4">Sentiment</p>
+              <div onMouseDown={e => e.preventDefault()} className="relative">
+                <ResponsiveContainer width="100%" height={168}>
                   <PieChart>
-                    <Pie data={topics.sentiment} dataKey="count" nameKey="name"
-                      cx="50%" cy="50%" innerRadius={55} outerRadius={75}
+                    <Pie data={topics.sentiment.filter(s => s.count > 0)} dataKey="count" nameKey="name"
+                      cx="50%" cy="50%" innerRadius={58} outerRadius={78}
                       cursor="pointer"
-                      paddingAngle={3}
-                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                      paddingAngle={topics.sentiment.filter(s => s.count > 0).length > 1 ? 4 : 0}
+                      cornerRadius={8}
+                      stroke="none"
                       labelLine={false}
-                      animationDuration={1000}
+                      animationDuration={800}
                       onClick={(entry) => {
                         if (entry?.name) setChartPanel({ label: entry.name, type: "sentiment", value: entry.name });
                       }}>
-                      {topics.sentiment.map((entry) => (
-                        <Cell key={entry.name}
-                          fill={entry.name === "Positive" ? "#22c55e" : entry.name === "Negative" ? "#ef4444" : "#94a3b8"} 
-                          stroke="none"
-                        />
+                      {topics.sentiment.filter(s => s.count > 0).map((entry) => (
+                        <Cell key={entry.name} fill={sentColor(entry.name)} />
                       ))}
                     </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '12px', border: 'none', color: '#f1f5f9' }}
-                      formatter={(v) => [`${v} insights — click to view`, ""]} 
+                    <Tooltip
+                      position={{ y: 0 }}
+                      wrapperStyle={{ zIndex: 20 }}
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.92)', borderRadius: '8px', border: 'none', color: '#f1f5f9', fontSize: 12, padding: '4px 8px', boxShadow: '0 8px 24px -6px rgba(0,0,0,0.35)' }}
+                      formatter={(v) => [`${v} insights — click to view`, ""]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                {dominantSent && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[26px] font-bold leading-none tabular-nums text-slate-900 dark:text-slate-100">
+                      {Math.round((dominantSent.count / sentTotal) * 100)}%
+                    </span>
+                    <span className="text-[11px] font-medium mt-1" style={{ color: sentColor(dominantSent.name) }}>{dominantSent.name}</span>
+                  </div>
+                )}
+              </div>
+              {/* breakdown list */}
+              <div className="mt-5 space-y-2.5">
+                {topics.sentiment.filter(s => s.count > 0).map((s) => {
+                  const pct = sentTotal ? Math.round((s.count / sentTotal) * 100) : 0;
+                  return (
+                    <button key={s.name}
+                      onClick={() => setChartPanel({ label: s.name, type: "sentiment", value: s.name })}
+                      className="flex items-center gap-2.5 w-full group cursor-pointer rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: sentColor(s.name) }} />
+                      <span className="text-[13px] text-slate-600 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{s.name}</span>
+                      <span className="ml-auto text-[12px] text-slate-400 tabular-nums">{pct}%</span>
+                      <span className="text-[13px] font-semibold text-slate-900 dark:text-slate-100 tabular-nums w-6 text-right">{s.count}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -338,9 +371,10 @@ export default function Dashboard() {
                       margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
                       <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <Tooltip 
+                      <Tooltip
+                        cursor={{ fill: 'rgba(148,163,184,0.12)', radius: 4 }}
                         contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', border: 'none', color: '#f1f5f9' }}
-                        formatter={(v) => [`${v} insights`, ""]} 
+                        formatter={(v) => [`${v} insights`, ""]}
                       />
                       <Bar dataKey="count" fill={ROCHE_BLUE} radius={[0, 4, 4, 0]} cursor="pointer"
                         animationDuration={1000}
@@ -375,7 +409,7 @@ export default function Dashboard() {
                     const barWidth = Math.max(4, (t.trend_score / maxScore) * 100);
                     return (
                       <div key={t.topic}
-                        className="flex items-center gap-2 cursor-pointer group"
+                        className="flex items-center gap-2 cursor-pointer group rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
                         onClick={() => setChartPanel({ label: t.topic, type: "topic", value: t.topic })}>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs text-gray-700 dark:text-[#94a3b8] truncate group-hover:text-roche-light transition-colors" title={t.topic}>
