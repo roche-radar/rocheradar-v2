@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     tinyfish_api_key: str = ""
     tinyfish_api_keys: str = ""
     tinyfish_rate_limit_per_key: int = 30
+    tinyfish_monthly_credits: int = 500  # credits granted per key per month (no balance API)
 
     # Sentry
     sentry_dsn: str = ""

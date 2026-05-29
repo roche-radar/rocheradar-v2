@@ -1,4 +1,5 @@
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,6 +11,7 @@ export function SynthesisPanel({
   takeaway, soWhat, conclusion, generatedAt, cached, error,
   isLoading, isError, hasRun, onGenerate, accent = "blue", picks,
   takeawayLabel = "Takeaway", conclusionLabel = "Conclusion",
+  collapsible = false, defaultCollapsed = false,
 }: {
   takeaway?: string;
   soWhat?: string;
@@ -25,16 +27,24 @@ export function SynthesisPanel({
   picks?: React.ReactNode;
   takeawayLabel?: string;
   conclusionLabel?: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const open = !collapsible || !collapsed;
   const btn = accent === "orange" ? "bg-orange-500 hover:bg-orange-600" : "bg-roche-blue hover:bg-roche-light";
   const accentText = accent === "orange" ? "text-orange-600 dark:text-orange-400" : "text-roche-blue dark:text-blue-300";
 
   return (
     <div className="glass-panel rounded-xl border border-slate-200/50 dark:border-white/10 p-4 space-y-3">
-      <div className="flex items-center gap-2">
+      <div className={cn("flex items-center gap-2", collapsible && "cursor-pointer")}
+        onClick={collapsible ? () => setCollapsed(c => !c) : undefined}>
+        {collapsible && (open
+          ? <ChevronDown size={15} className="text-gray-400 shrink-0" />
+          : <ChevronRight size={15} className="text-gray-400 shrink-0" />)}
         <Sparkles size={15} className={accentText} />
         <h3 className="text-sm font-bold text-gray-900 dark:text-[#e2e8f0]">Synthesis &amp; takeaway</h3>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+        <div className="ml-auto flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
           {hasRun && generatedAt && (
             <span className="text-[10px] text-gray-400">{cached ? "cached" : "fresh"}</span>
           )}
@@ -45,6 +55,8 @@ export function SynthesisPanel({
           </button>
         </div>
       </div>
+
+      {open && <>
 
       {!hasRun && !isLoading && (
         <p className="text-xs text-gray-400 leading-relaxed">
@@ -76,6 +88,7 @@ export function SynthesisPanel({
         </div>
       )}
       {picks}
+      </>}
     </div>
   );
 }

@@ -355,8 +355,26 @@ async def stats():
 
 
 def _extract_brief_strings(raw: str) -> list[str]:
-    """Extract quoted sentences from LLM response even if array is truncated."""
-    import re as _re
+    """Extract the list of brief points from an LLM response.
+
+    The prompts ask for a JSON array of strings, so try that first (most
+    reliable). Fall back to quoted-sentence regex only if JSON parsing fails
+    (e.g. the array was truncated mid-stream)."""
+    import re as _re, json as _json
+
+    # 1) Proper JSON array parse — handles any punctuation / count correctly.
+    cleaned = _re.sub(r'```(?:json)?|```', '', raw).strip()
+    m = _re.search(r'\[.*\]', cleaned, _re.DOTALL)
+    if m:
+        try:
+            arr = _json.loads(m.group(0))
+            out = [str(s).strip() for s in arr if isinstance(s, str) and s.strip()]
+            if out:
+                return out
+        except Exception:
+            pass
+
+    # 2) Fallback: pull quoted sentences (survives a truncated array).
     strings = _re.findall(r'"((?:[^"\\]|\\.)+[.!?])"', raw)
     if not strings:
         strings = [s for s in _re.findall(r'"((?:[^"\\]|\\.){20,})"', raw) if not s.startswith("http")]
@@ -439,10 +457,12 @@ async def daily_brief(refresh: bool = False):
         "You are a senior pharma intelligence analyst for Roche's oncology strategy team.\n\n"
         "Below are real KOL statements and top social media posts from the last 6 months.\n"
         "Generate sharp, SPECIFIC intelligence points combining both KOL and social signals — "
-        "AT LEAST 3 points, up to 5.\n\n"
+        "exactly 3 to 5 points (never fewer than 3), the MOST important ones only.\n\n"
         "Rules:\n"
+        "- Every point must matter to Roche France specifically — its drugs, its competitors, "
+        "or its oncology strategy in France\n"
         "- Mention actual drug names, KOL names, or specific data when available\n"
-        "- Each point must be actionable: what should Roche watch, do, or address?\n"
+        "- Each point must be actionable: what should Roche France watch, do, or address?\n"
         "- Flag competitive threats or unmet needs explicitly\n"
         "- Do NOT write generic statements — trace every point back to the data\n"
         "- Each point max 30 words\n"
@@ -793,10 +813,12 @@ async def kol_brief(refresh: bool = False):
         "You are a senior pharma intelligence analyst for Roche's oncology strategy team.\n\n"
         f"Below are {len(insights)} real KOL statements from the last 6 months.\n"
         "Generate sharp, SPECIFIC intelligence points based ONLY on what these KOLs said — "
-        "AT LEAST 3 points, up to 5.\n\n"
+        "exactly 3 to 5 points (never fewer than 3), the MOST important ones only.\n\n"
         "Rules:\n"
+        "- Every point must matter to Roche France specifically — its drugs, its competitors, "
+        "or its oncology strategy in France\n"
         "- Quote actual KOL names and drug names from the data\n"
-        "- Every point must be actionable for Roche's strategy\n"
+        "- Every point must be actionable for Roche France's strategy\n"
         "- Flag competitive threats, unmet needs, or sentiment shifts explicitly\n"
         "- Do NOT write generic statements — trace every point back to a specific KOL\n"
         "- Each point max 30 words\n"
@@ -914,7 +936,7 @@ async def combined_synthesis(refresh: bool = False):
     ) or "(no social posts)"
 
     from app.services.llm_router import call_pro
-    from app.services.synthesizer import extract_section, parse_bullets
+    from app.services.synthesizer import extract_section, parse_bullets, trim_incomplete
     import structlog as _sl
     _log = _sl.get_logger("combined_synth")
 
@@ -943,9 +965,9 @@ async def combined_synthesis(refresh: bool = False):
     try:
         raw = call_pro([{"role": "user", "content": prompt}], max_tokens=4000)
         _log.info("combined_synth.llm_raw", raw=raw[:400])
-        takeaway = extract_section(raw, "TAKEAWAY")
-        so_what = extract_section(raw, "SO_WHAT")
-        conclusion = extract_section(raw, "CONCLUSION")
+        takeaway = trim_incomplete(extract_section(raw, "TAKEAWAY"))
+        so_what = trim_incomplete(extract_section(raw, "SO_WHAT"))
+        conclusion = trim_incomplete(extract_section(raw, "CONCLUSION"))
         focus = parse_bullets(extract_section(raw, "FOCUS"))[:6]
         if not takeaway and not focus:
             err = f"Parse failed: {raw[:200]}"
@@ -970,6 +992,13 @@ async def combined_synthesis(refresh: bool = False):
     except Exception:
         pass
     return result
+
+
+@app.get("/api/health/providers")
+async def provider_health(refresh: bool = False):
+    """Live health/usage for every configured API (LLM keys, scrapers, infra)."""
+    from app.services.provider_health import get_provider_health
+    return await get_provider_health(refresh=refresh)
 
 
 @app.get("/api/stats/comparison-brief")

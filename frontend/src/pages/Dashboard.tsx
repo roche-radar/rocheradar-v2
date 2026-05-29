@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useEffect } from "react";
-import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X, Sparkles, Loader2, ChevronRight } from "lucide-react";
+import { Play, Square, RefreshCw, TrendingUp, Users, FileText, Clock, BarChart2, ExternalLink, Filter, X, Sparkles, Loader2, ChevronRight, ChevronDown } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -156,6 +156,10 @@ export default function Dashboard() {
     mutationFn: (refresh: boolean) => api.combinedSynthesis(refresh),
   });
   const synth = synthMut.data;
+
+  // Collapsible brief cards — default collapsed to keep the dashboard compact
+  const [openBriefs, setOpenBriefs] = useState<Record<string, boolean>>({});
+  const toggleBrief = (k: string) => setOpenBriefs(s => ({ ...s, [k]: !s[k] }));
 
   const triggerMut = useMutation({
     mutationFn: () => api.runs.trigger(),
@@ -401,8 +405,10 @@ export default function Dashboard() {
 
       {/* Daily Brief */}
       <div className="glass rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+        <div className={cn("flex items-center justify-between", openBriefs.daily && "mb-4")}
+          onClick={() => toggleBrief("daily")}>
+          <div className="flex items-center gap-2 cursor-pointer">
+            {openBriefs.daily ? <ChevronDown size={15} className="text-gray-400 shrink-0"/> : <ChevronRight size={15} className="text-gray-400 shrink-0"/>}
             <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
               <Sparkles size={16} className="text-amber-600 dark:text-amber-400"/>
             </div>
@@ -411,7 +417,7 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400">AI-generated key takeaways from KOL monitoring + social trends</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
             {brief && brief.kol_count > 0 && (
               <span className="text-[10px] text-gray-400">{brief.kol_count} insights · {brief.social_count} posts</span>
             )}
@@ -423,7 +429,7 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        {briefLoading || briefMut.isPending ? (
+        {openBriefs.daily && (briefLoading || briefMut.isPending ? (
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <Loader2 size={14} className="animate-spin"/>Generating brief…
           </div>
@@ -458,11 +464,13 @@ export default function Dashboard() {
               ? "Click Generate to create the brief from existing data."
               : "No data yet — run a pipeline first, then click Generate."}
           </p>
-        )}
+        ))}
       </div>
 
       {/* AI Synthesis & takeaway — whole-DB (KOL + social) */}
       <SynthesisPanel
+        collapsible
+        defaultCollapsed
         accent="orange"
         takeaway={synth?.takeaway}
         takeawayLabel="What's happening"
@@ -495,8 +503,10 @@ export default function Dashboard() {
 
       {/* Social Trends Brief */}
       <div className="glass rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+        <div className={cn("flex items-center justify-between", openBriefs.social && "mb-4")}
+          onClick={() => toggleBrief("social")}>
+          <div className="flex items-center gap-2 cursor-pointer">
+            {openBriefs.social ? <ChevronDown size={15} className="text-gray-400 shrink-0"/> : <ChevronRight size={15} className="text-gray-400 shrink-0"/>}
             <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
               <TrendingUp size={16} className="text-orange-500 dark:text-orange-400"/>
             </div>
@@ -505,7 +515,7 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400">Sector-grouped signals from social media — 6-month window</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
             {socialBrief && socialBrief.total_posts > 0 && (
               <span className="text-[10px] text-gray-400">{socialBrief.total_posts} posts · {socialBrief.sections?.length ?? 0} sectors</span>
             )}
@@ -517,6 +527,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {openBriefs.social && (<>
         {/* Top topics chips */}
         {socialBrief?.top_topics && socialBrief.top_topics.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
@@ -562,12 +573,15 @@ export default function Dashboard() {
               : "No social posts yet — run a social scan first."}
           </p>
         )}
+        </>)}
       </div>
 
       {/* KOL Intelligence Brief */}
       <div className="glass rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+        <div className={cn("flex items-center justify-between", openBriefs.kol && "mb-4")}
+          onClick={() => toggleBrief("kol")}>
+          <div className="flex items-center gap-2 cursor-pointer">
+            {openBriefs.kol ? <ChevronDown size={15} className="text-gray-400 shrink-0"/> : <ChevronRight size={15} className="text-gray-400 shrink-0"/>}
             <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
               <Users size={16} className="text-blue-600 dark:text-blue-400"/>
             </div>
@@ -576,7 +590,7 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400">Key insights from monitored KOL statements — last 6 months</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
             {kolBrief && kolBrief.kol_count > 0 && (
               <span className="text-[10px] text-gray-400">{kolBrief.kol_count} insights analysed</span>
             )}
@@ -587,7 +601,7 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        {kolBriefLoading || kolBriefMut.isPending ? (
+        {openBriefs.kol && (kolBriefLoading || kolBriefMut.isPending ? (
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <Loader2 size={14} className="animate-spin"/>Analysing KOL insights…
           </div>
@@ -616,7 +630,7 @@ export default function Dashboard() {
           <p className="text-sm text-gray-400">
             {kolBrief && kolBrief.kol_count > 0 ? "Click Generate to create KOL brief." : "No KOL insights yet — run a pipeline first."}
           </p>
-        )}
+        ))}
       </div>
 
 

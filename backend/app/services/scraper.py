@@ -269,12 +269,25 @@ def _run_tf(args: list[str], timeout: int = 120, pipeline_mode: bool = True) -> 
                     if not _AGENT_CREDITS_EXHAUSTED:
                         logger.warning("tinyfish.agent_credits_exhausted", key=key)
                         _AGENT_CREDITS_EXHAUSTED = True
+                try:
+                    from app.services.provider_health import flag_exhausted
+                    flag_exhausted(f"tinyfish:{key[-12:]}", stderr_snippet[:200])
+                except Exception:
+                    pass
             return {}, key
         out = r.stdout.strip()
         try:
-            return (json.loads(out) if out else {}), key
+            parsed = json.loads(out) if out else {}
         except json.JSONDecodeError:
             return {}, key
+        # Successful CLI call — count the credit and clear any stale flag
+        try:
+            from app.services.provider_health import record_tinyfish_usage, clear_exhausted
+            record_tinyfish_usage(key)
+            clear_exhausted(f"tinyfish:{key[-12:]}")
+        except Exception:
+            pass
+        return parsed, key
     except FileNotFoundError:
         logger.error("tinyfish.not_installed")
         return {}, key
@@ -312,6 +325,12 @@ def _tf_search_discovery(query: str) -> list[dict]:
                     capture_output=True, text=True, timeout=120, env=env)
         out = r.stdout.strip()
         data = _json.loads(out) if out else {}
+        if r.returncode == 0:
+            try:
+                from app.services.provider_health import record_tinyfish_usage
+                record_tinyfish_usage(key)
+            except Exception:
+                pass
         return data.get("results", [])
     except Exception:
         return []
@@ -330,6 +349,12 @@ def _tf_fetch_discovery(url: str) -> str:
                     capture_output=True, text=True, timeout=120, env=env)
         out = r.stdout.strip()
         data = _json.loads(out) if out else {}
+        if r.returncode == 0:
+            try:
+                from app.services.provider_health import record_tinyfish_usage
+                record_tinyfish_usage(key)
+            except Exception:
+                pass
         results = data.get("results", [])
         if results:
             return results[0].get("text") or results[0].get("content") or ""

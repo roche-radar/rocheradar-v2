@@ -226,6 +226,19 @@ export interface CombinedSynthesis {
   error?: string | null;
 }
 
+export interface ProviderHealth {
+  id: string;
+  name: string;
+  configured: boolean;
+  status: "ok" | "low" | "exhausted" | "error" | "unknown";
+  usage_usd: number | null;
+  limit_usd: number | null;
+  percent: number | null;
+  usage_label?: string | null;
+  message: string;
+  checked_at: string;
+}
+
 export interface DiscoveryContent {
   content: string | null;
   media_type: string;
@@ -392,6 +405,13 @@ export const api = {
     synthesis: (days = 30, lang = "all", refresh = false) =>
       req<SocialSynthesis>(
         `/social/synthesis?days=${days}&lang=${lang}${refresh ? "&refresh=true" : ""}`
+      ),
+  },
+
+  health: {
+    providers: (refresh = false) =>
+      req<{ providers: ProviderHealth[]; checked_at: string }>(
+        `/health/providers${refresh ? "?refresh=true" : ""}`
       ),
   },
 };

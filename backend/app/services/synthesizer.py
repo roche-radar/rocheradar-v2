@@ -18,6 +18,18 @@ import re
 
 _PICK_RE = re.compile(r'\s*\[(\d+)\]\s*(.*)')
 _BULLET_PREFIX_RE = re.compile(r'^\s*(?:[-*•]|\d+[.)]|\[\d+\])\s*')
+_ENDS_CLEAN_RE = re.compile(r'[.!?]["\')\]]?\s*$')
+_SENT_END_RE = re.compile(r'[.!?]["\')\]]?')
+
+
+def trim_incomplete(text: str) -> str:
+    """Drop a trailing half-sentence so a truncated LLM response never shows a
+    dangling fragment (e.g. '...Daiichi Sankyo/AstraZeneca's Datopot')."""
+    text = (text or "").strip()
+    if not text or _ENDS_CLEAN_RE.search(text):
+        return text
+    ends = list(_SENT_END_RE.finditer(text))
+    return text[:ends[-1].end()].strip() if ends else text
 
 
 def extract_section(raw: str, name: str) -> str:
@@ -48,8 +60,8 @@ def parse_bullets(text: str) -> list[str]:
 def parse_synthesis(raw: str) -> dict:
     """For social / discovery panels: takeaway + so_what + conclusion + id picks."""
     return {
-        "takeaway": extract_section(raw, "TAKEAWAY"),
-        "so_what": extract_section(raw, "SO_WHAT"),
-        "conclusion": extract_section(raw, "CONCLUSION"),
+        "takeaway": trim_incomplete(extract_section(raw, "TAKEAWAY")),
+        "so_what": trim_incomplete(extract_section(raw, "SO_WHAT")),
+        "conclusion": trim_incomplete(extract_section(raw, "CONCLUSION")),
         "picks": parse_picks(extract_section(raw, "PICKS")),
     }

@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import {
-  Save, RefreshCw, CheckCircle, XCircle, ChevronDown,
+  Save, RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronRight,
   Cpu, Calendar, Gauge, Info, Activity, Square, Trash2,
-  Flame, Play, Loader2,
+  Flame, Play, Loader2, AlertTriangle, CircleSlash, ServerCog,
 } from "lucide-react";
-import { api, type AppSettings } from "@/lib/api";
+import { api, type AppSettings, type ProviderHealth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function PipelineStatus() {
@@ -62,6 +62,95 @@ function PipelineStatus() {
         </button>
       )}
     </div>
+  );
+}
+
+function ProviderRow({ p }: { p: ProviderHealth }) {
+  const meta = {
+    ok:        { color: "text-green-600 dark:text-green-400", dot: "bg-green-500", Icon: CheckCircle },
+    low:       { color: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500", Icon: AlertTriangle },
+    exhausted: { color: "text-red-600 dark:text-red-400",     dot: "bg-red-500",   Icon: CircleSlash },
+    error:     { color: "text-red-600 dark:text-red-400",     dot: "bg-red-500",   Icon: XCircle },
+    unknown:   { color: "text-gray-400",                      dot: "bg-gray-300",  Icon: Info },
+  }[p.status] ?? { color: "text-gray-400", dot: "bg-gray-300", Icon: Info };
+  const StatusIcon = meta.Icon;
+  const barPct = p.percent != null ? Math.min(100, p.percent) : null;
+  return (
+    <div className="py-2.5 first:pt-0 last:pb-0">
+      <div className="flex items-center gap-2">
+        <span className={cn("w-2 h-2 rounded-full shrink-0", meta.dot)} />
+        <span className="text-sm font-medium text-gray-800 dark:text-[#e2e8f0]">{p.name}</span>
+        <StatusIcon size={13} className={cn("shrink-0", meta.color)} />
+        {!p.configured && <span className="text-[10px] text-gray-400">not configured</span>}
+        {p.usage_label ? (
+          <span className="ml-auto text-xs font-mono text-gray-500 dark:text-[#94a3b8]">{p.usage_label}</span>
+        ) : p.usage_usd != null && (
+          <span className="ml-auto text-xs font-mono text-gray-500 dark:text-[#94a3b8]">
+            ${p.usage_usd.toFixed(2)}{p.limit_usd ? ` / $${p.limit_usd.toFixed(2)}` : ""}
+          </span>
+        )}
+      </div>
+      {barPct != null && (
+        <div className="mt-1.5 h-1.5 bg-gray-100 dark:bg-[#1e3a5f] rounded-full overflow-hidden">
+          <div className={cn("h-full rounded-full transition-all",
+            p.status === "exhausted" ? "bg-red-500" : p.status === "low" ? "bg-amber-500" : "bg-green-500")}
+            style={{ width: `${barPct}%` }} />
+        </div>
+      )}
+      {p.message && (
+        <p className={cn("text-xs mt-1", p.status === "exhausted" || p.status === "error" ? meta.color : "text-gray-400 dark:text-[#64748b]")}>
+          {p.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ProviderHealthPanel() {
+  const qc = useQueryClient();
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["provider-health"],
+    queryFn: () => api.health.providers(false),
+    refetchInterval: 120000,
+  });
+  const refreshMut = useMutation({
+    mutationFn: () => api.health.providers(true),
+    onSuccess: (d) => qc.setQueryData(["provider-health"], d),
+  });
+  const providers = data?.providers ?? [];
+  const anyBad = providers.some(p => p.status === "exhausted" || p.status === "error");
+  const anyLow = providers.some(p => p.status === "low");
+  const summary = (
+    <span className={cn("flex items-center gap-1.5 text-[11px] font-medium",
+      anyBad ? "text-red-600 dark:text-red-400" : anyLow ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400")}>
+      <span className={cn("w-2 h-2 rounded-full", anyBad ? "bg-red-500" : anyLow ? "bg-amber-500" : "bg-green-500")} />
+      {isLoading ? "checking…" : anyBad ? "action needed" : anyLow ? "running low" : `all ok · ${providers.length}`}
+    </span>
+  );
+  return (
+    <Card icon={<ServerCog size={16} />} title="Service health & usage"
+      subtitle="API keys, scraper credits and live usage"
+      collapsible defaultCollapsed headerRight={summary}>
+      {anyBad && (
+        <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 mb-1">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>A scraping provider is out of credits or unreachable — runs may fail until resolved.</span>
+        </div>
+      )}
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+          <RefreshCw size={13} className="animate-spin" /> Checking providers…
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 dark:divide-[#1e3a5f]/50">
+          {providers.map(p => <ProviderRow key={p.id} p={p} />)}
+        </div>
+      )}
+      <button onClick={() => refreshMut.mutate()} disabled={isFetching || refreshMut.isPending}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] rounded-lg text-gray-600 dark:text-[#94a3b8] hover:bg-gray-50 dark:hover:bg-[#0f2744] disabled:opacity-50 mt-1">
+        <RefreshCw size={13} className={cn((isFetching || refreshMut.isPending) && "animate-spin")} /> Refresh now
+      </button>
+    </Card>
   );
 }
 
@@ -141,6 +230,8 @@ export default function SettingsPage() {
       </div>
 
       <PipelineStatus />
+
+      <ProviderHealthPanel />
 
       {/* ── 2-column grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -663,22 +754,37 @@ const input = [
 
 // ── Sub-components ────────────────────────────────────────
 
-function Card({ icon, title, subtitle, children }: {
+function Card({ icon, title, subtitle, children, collapsible = false, defaultCollapsed = false, headerRight }: {
   icon: React.ReactNode; title: string; subtitle?: string; children: React.ReactNode;
+  collapsible?: boolean; defaultCollapsed?: boolean; headerRight?: React.ReactNode;
 }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const open = !collapsible || !collapsed;
   return (
     <div className="glass-panel rounded-xl shadow-sm overflow-hidden">
       {/* Card header */}
-      <div className="px-5 py-4 border-b border-gray-100 dark:border-[#1e3a5f]/60 bg-gray-50/50 dark:bg-[#0a0f1e]/40">
+      <div className={cn(
+        "px-5 py-4 border-b border-gray-100 dark:border-[#1e3a5f]/60 bg-gray-50/50 dark:bg-[#0a0f1e]/40",
+        collapsible && "cursor-pointer select-none",
+        collapsible && !open && "border-b-transparent")}
+        onClick={collapsible ? () => setCollapsed(c => !c) : undefined}>
         <div className="flex items-center gap-2">
           <span className="text-roche-light dark:text-[#2563eb]">{icon}</span>
           <div>
             <h2 className="font-semibold text-sm text-gray-900 dark:text-[#e2e8f0]">{title}</h2>
             {subtitle && <p className="text-xs text-gray-400 dark:text-[#64748b]">{subtitle}</p>}
           </div>
+          {(headerRight || collapsible) && (
+            <div className="ml-auto flex items-center gap-2">
+              {headerRight}
+              {collapsible && (open
+                ? <ChevronDown size={16} className="text-gray-400" />
+                : <ChevronRight size={16} className="text-gray-400" />)}
+            </div>
+          )}
         </div>
       </div>
-      <div className="p-5 space-y-4">{children}</div>
+      {open && <div className="p-5 space-y-4">{children}</div>}
     </div>
   );
 }
