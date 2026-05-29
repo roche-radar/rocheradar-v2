@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { User as UserIcon, Mail, KeyRound, Check, AlertCircle, Loader2, ShieldCheck } from "lucide-react";
+import { User as UserIcon, Mail, KeyRound, Check, AlertCircle, Loader2, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,9 @@ export default function Profile() {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showCur, setShowCur] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConf, setShowConf] = useState(false);
 
   const clean = (e: unknown) => (e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "Something went wrong");
 
@@ -99,12 +102,34 @@ export default function Profile() {
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><KeyRound size={15} /> Change password</h2>
         <Banner m={pwMsg} />
         <form onSubmit={submitPw} className="space-y-3 max-w-sm">
-          <input type="password" required placeholder="Current password" value={current}
-            onChange={(e) => setCurrent(e.target.value)} className={input} />
-          <input type="password" required placeholder="New password (min 8)" value={next}
-            onChange={(e) => setNext(e.target.value)} className={input} />
-          <input type="password" required placeholder="Confirm new password" value={confirm}
-            onChange={(e) => setConfirm(e.target.value)} className={input} />
+          <div className="relative">
+            <input type={showCur ? "text" : "password"} required placeholder="Current password" value={current}
+              onChange={(e) => setCurrent(e.target.value)} className={cn(input, "pr-11")} />
+            <button type="button" onClick={() => setShowCur((v) => !v)}
+              aria-label={showCur ? "Hide password" : "Show password"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              {showCur ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <div className="relative">
+            <input type={showNew ? "text" : "password"} required placeholder="New password (min 8)" value={next}
+              onChange={(e) => setNext(e.target.value)} className={cn(input, "pr-11")} />
+            <button type="button" onClick={() => setShowNew((v) => !v)}
+              aria-label={showNew ? "Hide password" : "Show password"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <div className="relative">
+            <input type={showConf ? "text" : "password"} required placeholder="Confirm new password" value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className={cn(input, "pr-11", confirm && next !== confirm && "border-red-300 dark:border-red-700 focus:ring-red-400/30")} />
+            <button type="button" onClick={() => setShowConf((v) => !v)}
+              aria-label={showConf ? "Hide password" : "Show password"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              {showConf ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
           <button type="submit" disabled={pwMut.isPending}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-roche-blue hover:bg-roche-light text-white text-sm font-semibold disabled:opacity-50">
             {pwMut.isPending ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />} Update password

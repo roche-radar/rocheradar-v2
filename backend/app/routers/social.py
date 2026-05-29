@@ -186,7 +186,7 @@ async def trends(
 @router.get("/synthesis")
 async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = False,
                     db: AsyncSession = Depends(get_db),
-                    _user=Depends(daily_gen_guard("social_synthesis"))):
+                    user=Depends(daily_gen_guard("social_synthesis"))):
     """On-demand LLM synthesis of the recent social feed (filter-independent).
 
     Returns a takeaway + 'so what for Roche' + the LLM's pick of the most
@@ -196,16 +196,15 @@ async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = Fal
     from app.services.synthesizer import parse_synthesis
 
     key = f"social_synth:v1:{days}:{lang or 'all'}"
+    ukey = f"{key}:u{user.id}"   # private regenerate per user; shared key untouched
     r = None
     try:
         import redis as _redis
         r = _redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(key)
+            cached = r.get(ukey) or r.get(key)
             if cached:
                 return json.loads(cached)
-        else:
-            r.delete(key)
     except Exception:
         r = None
 
@@ -281,7 +280,7 @@ async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = Fal
     }
     try:
         if r and (parsed["takeaway"] or highlights):
-            r.set(key, json.dumps(result), ex=21600)
+            r.set(ukey if refresh else key, json.dumps(result), ex=21600)
     except Exception:
         pass
     return result

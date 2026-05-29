@@ -18,6 +18,7 @@ export default function Users() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("user");
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -28,9 +29,17 @@ export default function Users() {
 
   const createMut = useMutation({
     mutationFn: () => api.auth.createUser(name.trim(), email.trim(), password, role),
-    onSuccess: () => { setName(""); setEmail(""); setPassword(""); setRole("user"); setError(null); invalidate(); },
+    onSuccess: () => { setName(""); setEmail(""); setPassword(""); setConfirmPassword(""); setRole("user"); setError(null); invalidate(); },
     onError: (e) => setError(cleanErr(e)),
   });
+
+  const submitCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 8) return setError("Password must be at least 8 characters");
+    if (password !== confirmPassword) return setError("Passwords don't match");
+    setError(null);
+    createMut.mutate();
+  };
   const updateMut = useMutation({
     mutationFn: ({ id, body }: { id: number; body: UpdateBody }) => api.auth.updateUser(id, body),
     onSuccess: invalidate,
@@ -72,14 +81,14 @@ export default function Users() {
             <p className="text-[11px] text-slate-400">They'll sign in with this email and password.</p>
           </div>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); createMut.mutate(); }} className="p-5 space-y-4">
+        <form onSubmit={submitCreate} className="p-5 space-y-4">
           {error && (
             <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
               <AlertCircle size={13} className="shrink-0 mt-0.5" /> <span>{error}</span>
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-3">
+            <div className="md:col-span-5">
               <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Full name</label>
               <input type="text" placeholder="Jane Doe" value={name} onChange={(e) => setName(e.target.value)} className={createField} />
             </div>
@@ -88,15 +97,20 @@ export default function Users() {
               <input type="email" required placeholder="email@roche.com" value={email} onChange={(e) => setEmail(e.target.value)} className={createField} />
             </div>
             <div className="md:col-span-3">
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Temp password</label>
-              <input type="text" required placeholder="min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} className={createField} />
-            </div>
-            <div className="md:col-span-2">
               <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Role</label>
               <select value={role} onChange={(e) => setRole(e.target.value)} className={createField}>
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
+            </div>
+            <div className="md:col-span-6">
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Temp password</label>
+              <input type="text" required placeholder="min 8 characters" value={password} onChange={(e) => setPassword(e.target.value)} className={createField} />
+            </div>
+            <div className="md:col-span-6">
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Confirm password</label>
+              <input type="text" required placeholder="re-enter password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                className={cn(createField, confirmPassword && password !== confirmPassword && "border-red-300 dark:border-red-700 focus:ring-red-400/30")} />
             </div>
           </div>
           <div className="flex justify-end">

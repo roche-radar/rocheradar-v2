@@ -454,26 +454,26 @@ def _brief_priority(s: str) -> str:
 
 
 @app.get("/api/stats/daily-brief")
-async def daily_brief(refresh: bool = False, _user=Depends(daily_gen_guard("daily_brief"))):
+async def daily_brief(refresh: bool = False, user=Depends(daily_gen_guard("daily_brief"))):
     """Combined KOL + Social brief — 6-month data window. Cached 6h."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
 
     _KEY = "combined_brief:v3"
+    _UKEY = f"{_KEY}:u{user.id}"
     r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(_KEY)
+            cached = r.get(_UKEY) or r.get(_KEY)
             if cached:
                 result = _json.loads(cached)
                 if isinstance(result, dict):
                     result["cached"] = True
                 return result
-        else:
-            r.delete(_KEY)
+        # on refresh: skip the cache and regenerate into the per-user key (below)
     except Exception:
         r = None
 
@@ -564,7 +564,7 @@ async def daily_brief(refresh: bool = False, _user=Depends(daily_gen_guard("dail
     # Only cache if we got actual points
     try:
         if r and points:
-            r.set(_KEY, _json.dumps(result), ex=21600)
+            r.set(_UKEY if refresh else _KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
 
@@ -695,24 +695,24 @@ async def brief_detail(body: BriefDetailRequest):
 
 
 @app.get("/api/stats/social-brief")
-async def social_brief(refresh: bool = False, _user=Depends(daily_gen_guard("social_brief"))):
+async def social_brief(refresh: bool = False, user=Depends(daily_gen_guard("social_brief"))):
     """Sector-grouped social trends brief — 200 posts, 6-month window."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
     from collections import defaultdict
 
     _KEY = "social_brief:v3"
+    _UKEY = f"{_KEY}:u{user.id}"
     r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(_KEY)
+            cached = r.get(_UKEY) or r.get(_KEY)
             if cached:
                 return _json.loads(cached)
-        else:
-            r.delete(_KEY)
+        # on refresh: skip the cache and regenerate into the per-user key (below)
     except Exception:
         r = None
 
@@ -819,30 +819,30 @@ async def social_brief(refresh: bool = False, _user=Depends(daily_gen_guard("soc
     }
     try:
         if r and sections:
-            r.set(_KEY, _json.dumps(result), ex=21600)
+            r.set(_UKEY if refresh else _KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
     return result
 
 
 @app.get("/api/stats/kol-brief")
-async def kol_brief(refresh: bool = False, _user=Depends(daily_gen_guard("kol_brief"))):
+async def kol_brief(refresh: bool = False, user=Depends(daily_gen_guard("kol_brief"))):
     """KOL-only brief — 6-month insights window. Cached 6h."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
 
     _KEY = "kol_brief:v3"
+    _UKEY = f"{_KEY}:u{user.id}"
     r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(_KEY)
+            cached = r.get(_UKEY) or r.get(_KEY)
             if cached:
                 return _json.loads(cached)
-        else:
-            r.delete(_KEY)
+        # on refresh: skip the cache and regenerate into the per-user key (below)
     except Exception:
         r = None
 
@@ -917,14 +917,14 @@ async def kol_brief(refresh: bool = False, _user=Depends(daily_gen_guard("kol_br
     }
     try:
         if r and points:
-            r.set(_KEY, _json.dumps(result), ex=21600)
+            r.set(_UKEY if refresh else _KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
     return result
 
 
 @app.get("/api/stats/synthesis")
-async def combined_synthesis(refresh: bool = False, _user=Depends(daily_gen_guard("synthesis"))):
+async def combined_synthesis(refresh: bool = False, user=Depends(daily_gen_guard("synthesis"))):
     """Holistic AI synthesis over the WHOLE database — KOL insights + social posts.
 
     Always produces output as long as there's any data (does not require social
@@ -935,20 +935,20 @@ async def combined_synthesis(refresh: bool = False, _user=Depends(daily_gen_guar
     from datetime import datetime, timezone, timedelta
 
     _KEY = "combined_synth:v1"
+    _UKEY = f"{_KEY}:u{user.id}"
     r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(_KEY)
+            cached = r.get(_UKEY) or r.get(_KEY)
             if cached:
                 result = _json.loads(cached)
                 if isinstance(result, dict):
                     result["cached"] = True
                 return result
-        else:
-            r.delete(_KEY)
+        # on refresh: skip the cache and regenerate into the per-user key (below)
     except Exception:
         r = None
 
@@ -1054,7 +1054,7 @@ async def combined_synthesis(refresh: bool = False, _user=Depends(daily_gen_guar
     }
     try:
         if r and (takeaway or focus):
-            r.set(_KEY, _json.dumps(result), ex=21600)
+            r.set(_UKEY if refresh else _KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
     return result
@@ -1082,23 +1082,23 @@ async def provider_health(refresh: bool = False):
 
 
 @app.get("/api/stats/comparison-brief")
-async def comparison_brief(refresh: bool = False, _user=Depends(daily_gen_guard("comparison_brief"))):
+async def comparison_brief(refresh: bool = False, user=Depends(daily_gen_guard("comparison_brief"))):
     """Compare KOL signals vs social trends — alignment, gaps, strategic implications."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
 
     _KEY = "comparison_brief:v1"
+    _UKEY = f"{_KEY}:u{user.id}"
     r = None
     try:
         import redis as _redis
         from app.config import get_settings as _gs
         r = _redis.Redis.from_url(_gs().redis_url, socket_timeout=2)
         if not refresh:
-            cached = r.get(_KEY)
+            cached = r.get(_UKEY) or r.get(_KEY)
             if cached:
                 return _json.loads(cached)
-        else:
-            r.delete(_KEY)
+        # on refresh: skip the cache and regenerate into the per-user key (below)
     except Exception:
         r = None
 
@@ -1183,7 +1183,7 @@ async def comparison_brief(refresh: bool = False, _user=Depends(daily_gen_guard(
     }
     try:
         if r and points:
-            r.set(_KEY, _json.dumps(result), ex=21600)
+            r.set(_UKEY if refresh else _KEY, _json.dumps(result), ex=21600)
     except Exception:
         pass
     return result

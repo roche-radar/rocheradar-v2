@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, AlertCircle, ArrowRight, Activity, Flame, Sparkles, ShieldCheck } from "lucide-react";
+import { Loader2, AlertCircle, ArrowRight, Activity, Flame, Sparkles, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 
@@ -17,6 +17,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,10 +161,17 @@ export default function Login() {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Password</label>
-                <input type="password" required value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-[#1e3a5f] bg-white dark:bg-[#0f2744] text-base text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-roche-blue/40 focus:border-roche-blue/40 transition"
-                  placeholder="••••••••" />
+                <div className="relative">
+                  <input type={showPassword ? "text" : "password"} required value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3.5 pr-11 rounded-xl border border-slate-200 dark:border-[#1e3a5f] bg-white dark:bg-[#0f2744] text-base text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-roche-blue/40 focus:border-roche-blue/40 transition"
+                    placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
               <button type="submit" disabled={loading}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-roche-blue hover:bg-roche-light text-white text-base font-semibold transition-all disabled:opacity-50 mt-2 shadow-md shadow-roche-blue/30 hover:-translate-y-0.5">

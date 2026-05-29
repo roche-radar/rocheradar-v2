@@ -639,16 +639,15 @@ async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db),
 
     qhash = hashlib.sha256(f"{query.lower()}|{body.lang or 'all'}".encode()).hexdigest()[:16]
     key = f"disc_synth:v1:{qhash}"
+    ukey = f"{key}:u{user.id}"   # private regenerate per user; shared key untouched
     r = None
     try:
         import redis as _redis
         r = _redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
         if not body.refresh:
-            cached = r.get(key)
+            cached = r.get(ukey) or r.get(key)
             if cached:
                 return _json.loads(cached)
-        else:
-            r.delete(key)
     except Exception:
         r = None
 
@@ -741,7 +740,7 @@ async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db),
     }
     try:
         if r and (parsed["takeaway"] or highlights):
-            r.set(key, _json.dumps(result), ex=21600)
+            r.set(ukey if body.refresh else key, _json.dumps(result), ex=21600)
     except Exception:
         pass
     return result
