@@ -10,6 +10,22 @@ settings = get_settings()
 for _lib in ("fonttools", "weasyprint", "PIL", "httpx", "httpcore", "urllib3"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
+# ── Sentry (worker-side) ──────────────────────────────────
+# main.py inits Sentry for the FastAPI process. The worker is a SEPARATE
+# process, so without this block every task crash (scrape timeout, LLM 403,
+# OOM, PDF render fail) goes unreported. Gated on the same DSN — no-op locally
+# when SENTRY_DSN is unset.
+if settings.sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=0.1,
+        integrations=[CeleryIntegration()],
+    )
+
 celery_app = Celery(
     "rocheradar",
     broker=settings.celery_broker_url,

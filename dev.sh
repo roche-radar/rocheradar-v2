@@ -96,6 +96,13 @@ ok "LLM configured"
 #
 log "Starting Celery workers..."
 
+# Kill any leftover workers/beat from a previous (crashed or Ctrl+C'd) run, then
+# clear the beat schedule file. Without this, a stale beat keeps the gdbm lock on
+# /tmp/celerybeat-schedule and the new beat dies with "[Errno 11] Resource
+# temporarily unavailable" — plus orphaned workers pile up and waste RAM.
+pkill -f "celery -A app.tasks.celery_app.celery_app" 2>/dev/null && sleep 1
+rm -f /tmp/celerybeat-schedule*
+
 ../.venv/bin/celery -A app.tasks.celery_app.celery_app worker \
   -Q scrape -c 6 -n scrape@local --loglevel=info >> /tmp/celery-scrape.log 2>&1 &
 SCRAPE_PID=$!
