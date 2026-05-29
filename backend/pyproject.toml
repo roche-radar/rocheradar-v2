@@ -43,6 +43,10 @@ dependencies = [
     # Social scraping
     "apify-client>=1.7.0",
 
+    # Auth
+    "pyjwt>=2.10.0",
+    "bcrypt>=4.2.0",
+
     # Utils
     "pydantic-settings>=2.7.0",
     "structlog>=24.4.0",

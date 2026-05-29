@@ -12,6 +12,7 @@ import { api, type DiscoveryResult, type DiscoveryContent, type KolInsight, type
 import { cn } from "@/lib/utils";
 import { DescribeModal as SocialDescribeModal } from "./SocialTrends";
 import { SynthesisPanel } from "@/components/SynthesisPanel";
+import { useGenQuota } from "@/hooks/useGenQuota";
 import { Flame, Heart } from "lucide-react";
 
 /* ─── constants ──────────────────────────────────────────── */
@@ -89,8 +90,10 @@ export default function TopicExplorer() {
   });
 
   // On-demand AI synthesis of everything found for the current query
+  const { can: canGen, spent: genSpent } = useGenQuota();
   const synthMut = useMutation({
     mutationFn: (refresh: boolean) => api.discovery.synthesis(submitted, langFilter, refresh),
+    onSuccess: () => genSpent(),
   });
   const synth = synthMut.data;
 
@@ -370,6 +373,7 @@ export default function TopicExplorer() {
                 isLoading={synthMut.isPending}
                 isError={synthMut.isError}
                 hasRun={!!synth}
+                canRegenerate={canGen("discovery_synthesis")}
                 onGenerate={() => synthMut.mutate(!!synth)}
                 picks={synth?.highlights && synth.highlights.length > 0 ? (
                   <div>

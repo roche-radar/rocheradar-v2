@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
 export default function Targets() {
   const qc = useQueryClient();
+  const isAdmin = useAuthStore((s) => s.user?.role === "admin");
   const { data: targets, isLoading } = useQuery({ queryKey: ["targets"], queryFn: api.targets.list });
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", known_urls: "", notes: "", twitter_handle: "", linkedin_url: "" });
@@ -36,26 +38,28 @@ export default function Targets() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Targets</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => bulkToggle(true)}
-            className="px-3 py-1.5 text-xs border border-green-300 dark:border-green-800 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
-          >
-            Activate All
-          </button>
-          <button
-            onClick={() => bulkToggle(false)}
-            className="px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] text-gray-500 dark:text-[#94a3b8] rounded-lg hover:bg-gray-50 dark:hover:bg-[#1e3a5f]/30 transition-colors"
-          >
-            Deactivate All
-          </button>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light"
-          >
-            <Plus size={16} /> Add Target
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => bulkToggle(true)}
+              className="px-3 py-1.5 text-xs border border-green-300 dark:border-green-800 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
+            >
+              Activate All
+            </button>
+            <button
+              onClick={() => bulkToggle(false)}
+              className="px-3 py-1.5 text-xs border border-gray-200 dark:border-[#1e3a5f] text-gray-500 dark:text-[#94a3b8] rounded-lg hover:bg-gray-50 dark:hover:bg-[#1e3a5f]/30 transition-colors"
+            >
+              Deactivate All
+            </button>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light"
+            >
+              <Plus size={16} /> Add Target
+            </button>
+          </div>
+        )}
       </div>
 
       {showAdd && (
@@ -138,21 +142,23 @@ export default function Targets() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleMut.mutate({ id: t.id, active: !t.active })}
-                      disabled={toggleMut.isPending}
-                      title={t.active ? "Disable" : "Enable"}
-                      className={cn(
-                        "relative w-10 h-5 rounded-full transition-colors focus:outline-none disabled:opacity-50",
-                        t.active ? "bg-roche-light" : "bg-gray-200 dark:bg-[#1e3a5f]"
-                      )}
-                    >
-                      <span className={cn(
-                        "block w-4 h-4 rounded-full bg-white shadow transition-transform absolute top-0.5",
-                        t.active ? "translate-x-5" : "translate-x-0.5"
-                      )} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => toggleMut.mutate({ id: t.id, active: !t.active })}
+                        disabled={toggleMut.isPending}
+                        title={t.active ? "Disable" : "Enable"}
+                        className={cn(
+                          "relative w-10 h-5 rounded-full transition-colors focus:outline-none disabled:opacity-50",
+                          t.active ? "bg-roche-light" : "bg-gray-200 dark:bg-[#1e3a5f]"
+                        )}
+                      >
+                        <span className={cn(
+                          "block w-4 h-4 rounded-full bg-white shadow transition-transform absolute top-0.5",
+                          t.active ? "translate-x-5" : "translate-x-0.5"
+                        )} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

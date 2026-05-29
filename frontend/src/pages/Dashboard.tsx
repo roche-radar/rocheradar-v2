@@ -8,8 +8,10 @@ import {
 import { api, type Insight, type DailyBriefPoint } from "@/lib/api";
 import { formatDateTime, SENTIMENT_COLORS, cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
+import { useAuthStore } from "@/store/auth";
 import SocialTrendsSummary from "./SocialTrendsSummary";
 import { SynthesisPanel } from "@/components/SynthesisPanel";
+import { useGenQuota } from "@/hooks/useGenQuota";
 
 const PIE_COLORS = ["#0066cc", "#0ea5e9", "#14b8a6", "#f59e0b", "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e"];
 const ROCHE_BLUE = "#0066cc";
@@ -40,6 +42,9 @@ function StatCard({ label, value, icon: Icon, sub }: {
 export default function Dashboard() {
   const qc = useQueryClient();
   const { setActiveRunId } = useAppStore();
+  const isAdmin = useAuthStore((s) => s.user?.role === "admin");
+  const authUser = useAuthStore((s) => s.user);
+  const greetName = authUser?.name?.trim() || authUser?.email?.split("@")[0] || "there";
   const [period, setPeriod] = useState(7);
 
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: api.stats, refetchInterval: 10_000 });
@@ -118,7 +123,7 @@ export default function Dashboard() {
   });
   const briefMut = useMutation({
     mutationFn: () => api.dailyBrief(true),
-    onSuccess: (data) => qc.setQueryData(["daily-brief"], data),
+    onSuccess: (data) => { qc.setQueryData(["daily-brief"], data); qc.invalidateQueries({ queryKey: ["gen-quota"] }); },
   });
   const [selectedPoint, setSelectedPoint] = useState<string | null>(null);
   const [selectedSocialPoint, setSelectedSocialPoint] = useState<string | null>(null);
@@ -134,7 +139,7 @@ export default function Dashboard() {
   });
   const kolBriefMut = useMutation({
     mutationFn: () => api.kolBrief(true),
-    onSuccess: (data) => qc.setQueryData(["kol-brief"], data),
+    onSuccess: (data) => { qc.setQueryData(["kol-brief"], data); qc.invalidateQueries({ queryKey: ["gen-quota"] }); },
   });
 
   const { data: socialBrief, isLoading: socialBriefLoading } = useQuery({
@@ -148,14 +153,18 @@ export default function Dashboard() {
   });
   const socialBriefMut = useMutation({
     mutationFn: () => api.socialBrief(true),
-    onSuccess: (data) => qc.setQueryData(["social-brief"], data),
+    onSuccess: (data) => { qc.setQueryData(["social-brief"], data); qc.invalidateQueries({ queryKey: ["gen-quota"] }); },
   });
 
   // On-demand AI synthesis over the WHOLE DB (KOL + social) — always produces output
   const synthMut = useMutation({
     mutationFn: (refresh: boolean) => api.combinedSynthesis(refresh),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["gen-quota"] }),
   });
   const synth = synthMut.data;
+
+  // Daily AI-generation quota (1 regenerate/user/day; admins unlimited)
+  const { can: canGen } = useGenQuota();
 
   // Collapsible brief cards — default collapsed to keep the dashboard compact
   const [openBriefs, setOpenBriefs] = useState<Record<string, boolean>>({});
@@ -190,9 +199,12 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Dashboard</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Welcome back, {greetName} </h1>
+          <p className="text-sm text-gray-500 dark:text-[#94a3b8] mt-0.5">Here's your RocheRadar intelligence overview.</p>
+        </div>
         <div className="flex gap-2">
-          {running ? (
+          {isAdmin && (running ? (
             <button onClick={() => stopMut.mutate()}
               className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
               <Square size={14} /> Stop Run
@@ -202,7 +214,7 @@ export default function Dashboard() {
               className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light disabled:opacity-50">
               <Play size={14} /> Run Now
             </button>
-          )}
+          ))}
         </div>
       </div>
 
@@ -455,12 +467,14 @@ export default function Dashboard() {
             {brief && brief.kol_count > 0 && (
               <span className="text-[10px] text-gray-400">{brief.kol_count} insights · {brief.social_count} posts</span>
             )}
-            <button onClick={() => briefMut.mutate()} disabled={briefMut.isPending || briefLoading}
-              title="Regenerate brief from latest DB data"
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors">
-              {briefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
-              Generate
-            </button>
+            {canGen("daily_brief") && (
+              <button onClick={() => briefMut.mutate()} disabled={briefMut.isPending || briefLoading}
+                title="Regenerate brief from latest DB data (1 per day)"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors">
+                {briefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+                Regenerate
+              </button>
+            )}
           </div>
         </div>
         {openBriefs.daily && (briefLoading || briefMut.isPending ? (
@@ -517,6 +531,7 @@ export default function Dashboard() {
         isLoading={synthMut.isPending}
         isError={synthMut.isError}
         hasRun={!!synth}
+        canRegenerate={canGen("synthesis")}
         onGenerate={() => synthMut.mutate(!!synth)}
         picks={synth?.focus && synth.focus.length > 0 ? (
           <div>
@@ -553,11 +568,14 @@ export default function Dashboard() {
             {socialBrief && socialBrief.total_posts > 0 && (
               <span className="text-[10px] text-gray-400">{socialBrief.total_posts} posts · {socialBrief.sections?.length ?? 0} sectors</span>
             )}
-            <button onClick={() => socialBriefMut.mutate()} disabled={socialBriefMut.isPending || socialBriefLoading}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-orange-300 dark:border-orange-800 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors">
-              {socialBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
-              Generate
-            </button>
+            {canGen("social_brief") && (
+              <button onClick={() => socialBriefMut.mutate()} disabled={socialBriefMut.isPending || socialBriefLoading}
+                title="Regenerate (1 per day)"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-orange-300 dark:border-orange-800 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 disabled:opacity-50 transition-colors">
+                {socialBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+                Regenerate
+              </button>
+            )}
           </div>
         </div>
 
@@ -628,11 +646,14 @@ export default function Dashboard() {
             {kolBrief && kolBrief.kol_count > 0 && (
               <span className="text-[10px] text-gray-400">{kolBrief.kol_count} insights analysed</span>
             )}
-            <button onClick={() => kolBriefMut.mutate()} disabled={kolBriefMut.isPending || kolBriefLoading}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition-colors">
-              {kolBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
-              Generate
-            </button>
+            {canGen("kol_brief") && (
+              <button onClick={() => kolBriefMut.mutate()} disabled={kolBriefMut.isPending || kolBriefLoading}
+                title="Regenerate (1 per day)"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition-colors">
+                {kolBriefMut.isPending ? <Loader2 size={11} className="animate-spin"/> : <RefreshCw size={11}/>}
+                Regenerate
+              </button>
+            )}
           </div>
         </div>
         {openBriefs.kol && (kolBriefLoading || kolBriefMut.isPending ? (

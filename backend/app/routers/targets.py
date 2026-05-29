@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Target
+from app.auth import require_admin
 
 router = APIRouter(prefix="/api/targets", tags=["targets"])
 
@@ -57,7 +58,8 @@ async def list_targets(db: AsyncSession = Depends(get_db)):
     return result
 
 
-@router.post("/", response_model=TargetOut, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=TargetOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_admin)])
 async def create_target(body: TargetCreate, db: AsyncSession = Depends(get_db)):
     import json
     target = Target(
@@ -73,7 +75,7 @@ async def create_target(body: TargetCreate, db: AsyncSession = Depends(get_db)):
                      twitter_handle=target.twitter_handle, linkedin_url=target.linkedin_url)
 
 
-@router.put("/{target_id}", response_model=TargetOut)
+@router.put("/{target_id}", response_model=TargetOut, dependencies=[Depends(require_admin)])
 async def update_target(target_id: int, body: TargetUpdate, db: AsyncSession = Depends(get_db)):
     import json
     target = await db.get(Target, target_id)
@@ -101,7 +103,8 @@ async def update_target(target_id: int, body: TargetUpdate, db: AsyncSession = D
                      twitter_handle=target.twitter_handle, linkedin_url=target.linkedin_url)
 
 
-@router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_admin)])
 async def deactivate_target(target_id: int, db: AsyncSession = Depends(get_db)):
     target = await db.get(Target, target_id)
     if not target:

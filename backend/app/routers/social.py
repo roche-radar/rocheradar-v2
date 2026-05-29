@@ -14,7 +14,8 @@ from sqlalchemy import select, desc, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import SocialPost
+from app.models import SocialPost, SearchHistory, User
+from app.auth import get_current_user, require_admin, daily_gen_guard
 
 router = APIRouter(prefix="/api/social", tags=["social"])
 
@@ -85,9 +86,9 @@ async def trigger_scan(lang: str | None = None):
     return {"started": True, "task_id": task.id, "lang": lang}
 
 
-@router.delete("/posts")
+@router.delete("/posts", dependencies=[Depends(require_admin)])
 async def clear_posts(db: AsyncSession = Depends(get_db)):
-    """Delete all social posts. Used for testing scraping/filters from a clean slate."""
+    """Delete all social posts. Admin only — destructive, forces a paid re-scrape."""
     from sqlalchemy import delete, func
     count_q = await db.execute(select(func.count()).select_from(SocialPost))
     before = count_q.scalar() or 0
@@ -184,7 +185,8 @@ async def trends(
 
 @router.get("/synthesis")
 async def synthesis(days: int = 30, lang: str | None = None, refresh: bool = False,
-                    db: AsyncSession = Depends(get_db)):
+                    db: AsyncSession = Depends(get_db),
+                    _user=Depends(daily_gen_guard("social_synthesis"))):
     """On-demand LLM synthesis of the recent social feed (filter-independent).
 
     Returns a takeaway + 'so what for Roche' + the LLM's pick of the most
@@ -334,12 +336,16 @@ async def timeseries(days: int = 180, top: int = 6, db: AsyncSession = Depends(g
 # ── Discovery: cached matches + background fresh Apify fetch ──
 
 @router.get("/discover")
-async def discover(q: str, fresh: bool = True, lang: str | None = None, db: AsyncSession = Depends(get_db)):
+async def discover(q: str, fresh: bool = True, lang: str | None = None,
+                   db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     """Return social posts matching a query, ranked. `lang` overrides the
     configured default (fr/en/all). If user picks "Global" in the UI, lang="all"."""
     term = (q or "").strip()
     if len(term) < 2:
         return {"query": term, "results": [], "fetching": False}
+
+    db.add(SearchHistory(user_id=user.id, kind="social", query=term))
+    await db.commit()
 
     now = datetime.now(timezone.utc)
     like = f"%{term.lower()}%"
@@ -369,12 +375,13 @@ async def discover(q: str, fresh: bool = True, lang: str | None = None, db: Asyn
 
 
 @router.get("/discover/history")
-async def discover_history(db: AsyncSession = Depends(get_db)):
-    """List of recently-searched queries in Social Trends discover, deduped, latest first."""
+async def discover_history(db: AsyncSession = Depends(get_db),
+                           user: User = Depends(get_current_user)):
+    """This user's recently-searched Social Trends queries, deduped, latest first."""
     rows = await db.execute(
-        select(SocialPost.query, SocialPost.scraped_at)
-        .where(SocialPost.query.isnot(None))
-        .order_by(desc(SocialPost.scraped_at))
+        select(SearchHistory.query, SearchHistory.created_at)
+        .where(SearchHistory.kind == "social", SearchHistory.user_id == user.id)
+        .order_by(desc(SearchHistory.created_at))
         .limit(300)
     )
     seen: set = set()

@@ -1,14 +1,26 @@
 // In dev: proxied to localhost:8009 via Vite
 // In prod (Railway): VITE_API_URL=https://your-backend.railway.app
+import { useAuthStore } from "@/store/auth";
+
 declare const __API_BASE__: string;
 const BASE = (typeof __API_BASE__ !== "undefined" && __API_BASE__ ? __API_BASE__ : "") + "/api";
 
+function authHeaders(): Record<string, string> {
+  const token = useAuthStore.getState().token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...options?.headers },
     ...options,
   });
   if (!res.ok) {
+    // Session expired / not authenticated → drop creds and bounce to login
+    if (res.status === 401 && !path.startsWith("/auth/login")) {
+      useAuthStore.getState().logout();
+      if (!location.pathname.startsWith("/login")) location.href = "/login";
+    }
     const text = await res.text();
     throw new Error(`${res.status}: ${text}`);
   }
@@ -414,4 +426,43 @@ export const api = {
         `/health/providers${refresh ? "?refresh=true" : ""}`
       ),
   },
+
+  genQuota: () => req<{ admin: boolean; features: Record<string, boolean> }>("/me/gen-quota"),
+
+  auth: {
+    login: async (email: string, password: string) => {
+      const body = new URLSearchParams({ username: email, password });
+      const res = await fetch(`${BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!res.ok) {
+        let detail = "Login failed";
+        try { detail = (await res.json()).detail || detail; } catch { /* ignore */ }
+        throw new Error(detail);
+      }
+      return (await res.json()) as { access_token: string; token_type: string; user: AuthUserDTO };
+    },
+    me: () => req<AuthUserDTO>("/auth/me"),
+    updateProfile: (body: { name?: string; email?: string; current_password?: string; new_password?: string }) =>
+      req<AuthUserDTO>("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
+    listUsers: () => req<AuthUserDTO[]>("/auth/users"),
+    createUser: (name: string, email: string, password: string, role: string) =>
+      req<AuthUserDTO>("/auth/users", {
+        method: "POST", body: JSON.stringify({ name, email, password, role }),
+      }),
+    updateUser: (id: number, body: { name?: string; email?: string; password?: string; role?: string; is_active?: boolean }) =>
+      req<AuthUserDTO>(`/auth/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    deleteUser: (id: number) => req<void>(`/auth/users/${id}`, { method: "DELETE" }),
+  },
 };
+
+export interface AuthUserDTO {
+  id: number;
+  name: string | null;
+  email: string;
+  role: "admin" | "user";
+  is_active: boolean;
+  created_at: string;
+}

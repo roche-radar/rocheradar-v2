@@ -13,6 +13,8 @@ _DISCOVERY_SEM = asyncio.Semaphore(8)
 
 from app.database import get_db
 from app.models.discovery_result import DiscoveryResult
+from app.models import SearchHistory, User
+from app.auth import get_current_user, enforce_daily_generation
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -332,10 +334,15 @@ async def _save_hit(db, query: str, hit: dict, seen_urls: set) -> dict | None:
 
 
 @router.post("/search")
-async def search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
+async def search(body: SearchRequest, db: AsyncSession = Depends(get_db),
+                 user: User = Depends(get_current_user)):
     query = body.query.strip()
     if not query:
         return {"results": [], "from_cache": False, "count": 0}
+
+    # Record this user's search (cache stays shared; this is just per-user history)
+    db.add(SearchHistory(user_id=user.id, kind="discovery", query=query))
+    await db.commit()
 
     # Check DB cache first
     if not body.force_refresh:
@@ -500,10 +507,12 @@ async def deep_search(body: SearchRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/history")
-async def history(db: AsyncSession = Depends(get_db)):
+async def history(db: AsyncSession = Depends(get_db),
+                  user: User = Depends(get_current_user)):
     rows = await db.execute(
-        select(DiscoveryResult.query, DiscoveryResult.scraped_at)
-        .order_by(desc(DiscoveryResult.scraped_at))
+        select(SearchHistory.query, SearchHistory.created_at)
+        .where(SearchHistory.kind == "discovery", SearchHistory.user_id == user.id)
+        .order_by(desc(SearchHistory.created_at))
         .limit(200)
     )
     seen: set = set()
@@ -607,7 +616,8 @@ class SynthesisRequest(BaseModel):
 
 
 @router.post("/synthesis")
-async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db)):
+async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db),
+                    user: User = Depends(get_current_user)):
     """On-demand LLM synthesis of everything found for a query — web/social
     results + KOL mentions. Returns a takeaway, 'so what for Roche', and the
     LLM's pick of the most interesting/impactful results (each with a why).
@@ -615,6 +625,9 @@ async def synthesis(body: SynthesisRequest, db: AsyncSession = Depends(get_db)):
     """
     import json as _json
     from app.config import get_settings
+    # One forced fresh synthesis per user per day (admins unlimited)
+    if body.refresh:
+        enforce_daily_generation(user, "discovery_synthesis")
     from app.services.synthesizer import parse_synthesis
     from app.models import ExtractedInsight
     from sqlalchemy import or_, func

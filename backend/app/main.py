@@ -2,7 +2,7 @@ import logging
 import structlog
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +15,8 @@ from app.database import engine, Base
 from app.routers import targets, runs, reports, settings as settings_router, agent
 from app.routers import discovery as discovery_router
 from app.routers import social as social_router
+from app.routers import auth as auth_router
+from app.auth import require_admin, daily_gen_guard, get_current_user, daily_generation_available
 
 _settings = get_settings()
 
@@ -63,8 +65,29 @@ if _settings.sentry_dsn:
     sentry_sdk.init(dsn=_settings.sentry_dsn, environment=_settings.environment, traces_sample_rate=0.1)
 
 
+_DEFAULT_SECRET = "changeme-at-least-32-chars-long!!"
+
+
+def _verify_secret_key() -> None:
+    """Refuse to boot with a forgeable JWT key. The default is public (in the
+    repo), so running it in production lets anyone mint admin tokens."""
+    key = _settings.secret_key
+    weak = key == _DEFAULT_SECRET or len(key) < 32
+    if not weak:
+        return
+    if _settings.is_production:
+        raise RuntimeError(
+            "FATAL: SECRET_KEY is unset/weak in production. JWTs would be forgeable. "
+            "Set a strong random SECRET_KEY env var "
+            "(python -c \"import secrets; print(secrets.token_urlsafe(48))\")."
+        )
+    logger.warning("startup.weak_secret_key",
+                   hint="Using the insecure default SECRET_KEY — fine for local dev, NEVER in prod.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _verify_secret_key()
     logger.info("startup", env=_settings.environment)
     async with engine.begin() as conn:
         # Enable pgvector if available — silently skip if not installed locally
@@ -81,9 +104,21 @@ async def lifespan(app: FastAPI):
             else:
                 raise
     await _seed_defaults()
+    await _seed_admin()
     yield
     logger.info("shutdown")
     await engine.dispose()
+
+
+async def _seed_admin() -> None:
+    """Create the first admin from SEED_ADMIN_* env vars if no users exist."""
+    from app.database import AsyncSessionLocal
+    from app.auth import ensure_seed_admin
+    try:
+        async with AsyncSessionLocal() as sess:
+            await ensure_seed_admin(sess)
+    except Exception as exc:
+        logger.warning("startup.seed_admin_failed", exc=str(exc)[:160])
 
 
 async def _seed_defaults() -> None:
@@ -208,6 +243,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Blanket auth gate ─────────────────────────────────────
+# Every /api/* route requires a valid signed token, except the public ones
+# below. Per-endpoint require_admin / get_current_user still enforce roles and
+# re-check the DB. Defined before CORS is added so CORS stays outermost and
+# 401 responses still carry CORS headers (frontend can read them and redirect).
+_PUBLIC_PREFIXES = ("/api/auth/login", "/api/docs", "/api/redoc", "/api/openapi")
+
+
+@app.middleware("http")
+async def require_auth(request, call_next):
+    import jwt as _jwt
+    from fastapi.responses import JSONResponse
+
+    path = request.url.path
+    if (request.method == "OPTIONS"
+            or not path.startswith("/api")
+            or path.startswith(_PUBLIC_PREFIXES)):
+        return await call_next(request)
+
+    header = request.headers.get("Authorization", "")
+    token = header[7:].strip() if header[:7].lower() == "bearer " else ""
+    if not token:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    try:
+        _jwt.decode(token, _settings.secret_key, algorithms=["HS256"])
+    except Exception:
+        return JSONResponse({"detail": "Invalid or expired token"}, status_code=401)
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -217,6 +282,7 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────
+app.include_router(auth_router.router)
 app.include_router(targets.router)
 app.include_router(runs.router)
 app.include_router(reports.router)
@@ -388,7 +454,7 @@ def _brief_priority(s: str) -> str:
 
 
 @app.get("/api/stats/daily-brief")
-async def daily_brief(refresh: bool = False):
+async def daily_brief(refresh: bool = False, _user=Depends(daily_gen_guard("daily_brief"))):
     """Combined KOL + Social brief — 6-month data window. Cached 6h."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
@@ -629,7 +695,7 @@ async def brief_detail(body: BriefDetailRequest):
 
 
 @app.get("/api/stats/social-brief")
-async def social_brief(refresh: bool = False):
+async def social_brief(refresh: bool = False, _user=Depends(daily_gen_guard("social_brief"))):
     """Sector-grouped social trends brief — 200 posts, 6-month window."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
@@ -760,7 +826,7 @@ async def social_brief(refresh: bool = False):
 
 
 @app.get("/api/stats/kol-brief")
-async def kol_brief(refresh: bool = False):
+async def kol_brief(refresh: bool = False, _user=Depends(daily_gen_guard("kol_brief"))):
     """KOL-only brief — 6-month insights window. Cached 6h."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta
@@ -858,7 +924,7 @@ async def kol_brief(refresh: bool = False):
 
 
 @app.get("/api/stats/synthesis")
-async def combined_synthesis(refresh: bool = False):
+async def combined_synthesis(refresh: bool = False, _user=Depends(daily_gen_guard("synthesis"))):
     """Holistic AI synthesis over the WHOLE database — KOL insights + social posts.
 
     Always produces output as long as there's any data (does not require social
@@ -994,15 +1060,29 @@ async def combined_synthesis(refresh: bool = False):
     return result
 
 
-@app.get("/api/health/providers")
+_GEN_FEATURES = ["daily_brief", "kol_brief", "social_brief", "synthesis",
+                 "comparison_brief", "social_synthesis", "discovery_synthesis"]
+
+
+@app.get("/api/me/gen-quota")
+async def gen_quota(user=Depends(get_current_user)):
+    """Per-feature: may this user still force a fresh AI regeneration today?
+    Admins are always true. Frontend uses this to hide the regenerate button."""
+    return {
+        "admin": user.role == "admin",
+        "features": {f: daily_generation_available(user, f) for f in _GEN_FEATURES},
+    }
+
+
+@app.get("/api/health/providers", dependencies=[Depends(require_admin)])
 async def provider_health(refresh: bool = False):
-    """Live health/usage for every configured API (LLM keys, scrapers, infra)."""
+    """Live health/usage for every configured API (LLM keys, scrapers, infra). Admin only."""
     from app.services.provider_health import get_provider_health
     return await get_provider_health(refresh=refresh)
 
 
 @app.get("/api/stats/comparison-brief")
-async def comparison_brief(refresh: bool = False):
+async def comparison_brief(refresh: bool = False, _user=Depends(daily_gen_guard("comparison_brief"))):
     """Compare KOL signals vs social trends — alignment, gaps, strategic implications."""
     import json as _json, re as _re
     from datetime import datetime, timezone, timedelta

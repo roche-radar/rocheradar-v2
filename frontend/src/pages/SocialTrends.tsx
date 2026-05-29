@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import { useHiddenRecents } from "@/lib/hiddenRecents";
 import { SynthesisPanel } from "@/components/SynthesisPanel";
+import { useGenQuota } from "@/hooks/useGenQuota";
 
 const PLATFORM_COLOR: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300",
@@ -270,8 +271,10 @@ export default function SocialTrends() {
   }, [allPosts, kind, minLikes, language, fromDate, toDate, cutoff]);
 
   // On-demand AI synthesis over the WHOLE DB (KOL + social) — always produces output
+  const { can: canGen, spent: genSpent } = useGenQuota();
   const synthMut = useMutation({
     mutationFn: (refresh: boolean) => api.combinedSynthesis(refresh),
+    onSuccess: () => genSpent(),
   });
   const synth = synthMut.data;
 
@@ -506,6 +509,7 @@ export default function SocialTrends() {
                 isLoading={synthMut.isPending}
                 isError={synthMut.isError}
                 hasRun={!!synth}
+                canRegenerate={canGen("synthesis")}
                 onGenerate={() => synthMut.mutate(!!synth)}
                 picks={synth?.focus && synth.focus.length > 0 ? (
                   <div>

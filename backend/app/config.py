@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Vercel Blob storage
     vercel_blob_token: str = ""
 
+    # Auth — first admin is seeded from these on startup if no users exist
+    seed_admin_email: str = ""
+    seed_admin_password: str = ""
+    seed_admin_name: str = ""
+
     # App
     secret_key: str = "changeme-at-least-32-chars-long!!"
     environment: str = "development"

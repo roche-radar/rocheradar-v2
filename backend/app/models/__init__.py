@@ -7,6 +7,8 @@ from app.models.person_summary import PersonSummary
 from app.models.agent_message import AgentMessage
 from app.models.discovery_result import DiscoveryResult
 from app.models.social_post import SocialPost
+from app.models.user import User
+from app.models.search_history import SearchHistory
 
 __all__ = [
     "Target",
@@ -19,4 +21,6 @@ __all__ = [
     "AgentMessage",
     "DiscoveryResult",
     "SocialPost",
+    "User",
+    "SearchHistory",
 ]

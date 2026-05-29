@@ -116,7 +116,7 @@ export default function Agent() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Bot size={20} className="text-roche-light" />
-          <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Medo AI</h1>
+          <h1 className="text-2xl font-bold text-roche-blue dark:text-[#e2e8f0]">Hermes AI</h1>
         </div>
         <button
           onClick={() => clearMut.mutate()}
@@ -130,7 +130,7 @@ export default function Agent() {
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4">
         {!messages.length && (
           <div className="text-center py-12 text-gray-400 text-sm">
-            Ask Medo AI about KOL activity, recent insights, or competitive intelligence.
+            Ask Hermes AI about KOL activity, recent insights, or competitive intelligence.
           </div>
         )}
         {messages.map((msg, i) => (

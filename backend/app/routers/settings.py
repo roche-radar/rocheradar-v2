@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import AppSettings
 from app.models.app_settings import PROVIDERS
+from app.auth import require_admin
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -140,7 +141,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     return _to_out(s)
 
 
-@router.post("/", response_model=SettingsOut)
+@router.post("/", response_model=SettingsOut, dependencies=[Depends(require_admin)])
 async def update_settings(body: SettingsUpdate, db: AsyncSession = Depends(get_db)):
     s = await _get_or_create(db)
     if body.llm_provider is not None and body.llm_provider not in PROVIDERS:
@@ -164,7 +165,7 @@ async def list_providers():
     return {"providers": PROVIDERS}
 
 
-@router.post("/models")
+@router.post("/models", dependencies=[Depends(require_admin)])
 async def fetch_models(body: TestConnectionRequest, db: AsyncSession = Depends(get_db)):
     """Return available model IDs for the given (or current) provider. Keys come from env vars."""
     from app.services.llm_router import list_models
@@ -176,7 +177,7 @@ async def fetch_models(body: TestConnectionRequest, db: AsyncSession = Depends(g
     return {"provider": provider, "models": models}
 
 
-@router.post("/test-connection")
+@router.post("/test-connection", dependencies=[Depends(require_admin)])
 async def test_connection(body: TestConnectionRequest, db: AsyncSession = Depends(get_db)):
     """Ping the LLM provider to verify credentials. Keys come from env vars."""
     from app.services.llm_router import test_connection as _test

@@ -1,9 +1,10 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, FileText, History, Settings, Bot, Compass,
-  Flame, ChevronLeft, ChevronRight, Sun, Moon, X,
+  Flame, ChevronLeft, ChevronRight, Sun, Moon, X, LogOut, ShieldCheck,
 } from "lucide-react";
 import { useAppStore } from "@/store";
+import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -12,13 +13,19 @@ const NAV = [
   { to: "/reports",   icon: FileText,        label: "Reports"        },
   { to: "/topics",    icon: Compass,         label: "Topic Explorer" },
   { to: "/social",    icon: Flame,           label: "Social Trends"  },
-  { to: "/history",   icon: History,         label: "Run History"    },
-  { to: "/agent",     icon: Bot,             label: "MedoAI"         },
-  { to: "/settings",  icon: Settings,        label: "Settings"       },
+  { to: "/history",   icon: History,         label: "Run History",    admin: true },
+  { to: "/agent",     icon: Bot,             label: "Hermes AI"      },
+  { to: "/users",     icon: ShieldCheck,     label: "Users",          admin: true },
+  { to: "/settings",  icon: Settings,        label: "Settings",       admin: true },
 ];
 
 export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen, darkMode, toggleDarkMode, mobileMenuOpen, setMobileMenuOpen } = useAppStore();
+  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const isAdmin = user?.role === "admin";
+  const nav = NAV.filter((n) => !n.admin || isAdmin);
 
   return (
     <>
@@ -67,7 +74,7 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1 py-4 space-y-0.5 px-2 overflow-y-auto">
-          {NAV.map(({ to, icon: Icon, label }) => (
+          {nav.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -89,6 +96,31 @@ export default function Sidebar() {
 
         {/* Bottom controls */}
         <div className="border-t border-slate-200/50 dark:border-white/10">
+          {/* Current user → profile + logout */}
+          {user && (
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-200/50 dark:border-white/10">
+              <button
+                onClick={() => { navigate("/profile"); setMobileMenuOpen(false); }}
+                className="flex items-center gap-2.5 flex-1 min-w-0 group text-left"
+                title="View profile"
+              >
+                <div className="w-7 h-7 rounded-full bg-roche-blue/15 text-roche-blue dark:text-blue-300 flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                  {user.email.slice(0, 1)}
+                </div>
+                <div className={cn("flex-1 min-w-0", !sidebarOpen && "lg:hidden")}>
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-roche-blue transition-colors" title={user.email}>{user.email}</div>
+                  <div className="text-[10px] text-slate-400 capitalize">{user.role}</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { logout(); navigate("/login", { replace: true }); }}
+                className={cn("p-1.5 text-slate-400 hover:text-red-500 transition-colors shrink-0", !sidebarOpen && "lg:hidden")}
+                title="Sign out" aria-label="Sign out"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
           <button
             onClick={toggleDarkMode}
             className="w-full flex items-center gap-3 px-5 py-3 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-amber-400 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-sm"

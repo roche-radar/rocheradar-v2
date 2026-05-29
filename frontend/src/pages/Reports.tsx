@@ -1,12 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Eye, FileText, X, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { useState, useMemo, useEffect } from "react";
 
 type PdfFile = { path: string; name: string; size: number; url: string; uploadedAt?: string };
 
 export default function Reports() {
   const qc = useQueryClient();
+  const isAdmin = useAuthStore((s) => s.user?.role === "admin");
   const { data: pdfs, isLoading, isError, error } = useQuery({ queryKey: ["pdfs"], queryFn: api.reports.list });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string>("");
@@ -71,15 +73,17 @@ export default function Reports() {
             </select>
           </div>
         )}
-        <button
-          onClick={() => genPdfsMut.mutate()}
-          disabled={genPdfsMut.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light disabled:opacity-50"
-          title="Regenerate PDFs from existing insights without re-scraping"
-        >
-          <RefreshCw size={14} className={genPdfsMut.isPending ? "animate-spin" : ""} />
-          {genPdfsMut.isPending ? "Generating…" : "Generate PDFs"}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => genPdfsMut.mutate()}
+            disabled={genPdfsMut.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-roche-blue text-white rounded-lg text-sm font-medium hover:bg-roche-light disabled:opacity-50"
+            title="Regenerate PDFs from existing insights without re-scraping"
+          >
+            <RefreshCw size={14} className={genPdfsMut.isPending ? "animate-spin" : ""} />
+            {genPdfsMut.isPending ? "Generating…" : "Generate PDFs"}
+          </button>
+        )}
       </div>
 
       {genMsg && (

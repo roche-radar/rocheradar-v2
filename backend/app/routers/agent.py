@@ -9,7 +9,8 @@ from sqlalchemy import select, desc, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AgentMessage, ExtractedInsight, Target, SocialPost
+from app.models import AgentMessage, ExtractedInsight, Target, SocialPost, User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -72,7 +73,8 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db),
+               user: User = Depends(get_current_user)):
     from pathlib import Path
     from app.services.llm_router import call_pro
 
@@ -96,9 +98,10 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     # Always search social posts for the user's query
     social_context = await _fetch_social_context(body.message, db)
 
-    # Load conversation history
+    # Load this user's conversation history
     history_rows = await db.execute(
-        select(AgentMessage).order_by(AgentMessage.created_at).limit(20)
+        select(AgentMessage).where(AgentMessage.user_id == user.id)
+        .order_by(AgentMessage.created_at).limit(20)
     )
     history = history_rows.scalars().all()
     messages = [{"role": "system", "content": system_prompt}]
@@ -118,23 +121,28 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM call failed: {str(exc)[:200]}")
 
-    # Persist exchange
-    db.add(AgentMessage(role="user", content=body.message))
-    db.add(AgentMessage(role="assistant", content=reply))
+    # Persist exchange (scoped to this user)
+    db.add(AgentMessage(role="user", content=body.message, user_id=user.id))
+    db.add(AgentMessage(role="assistant", content=reply, user_id=user.id))
     await db.commit()
 
     return {"reply": reply}
 
 
 @router.get("/history")
-async def get_history(db: AsyncSession = Depends(get_db)):
-    rows = await db.execute(select(AgentMessage).order_by(AgentMessage.created_at).limit(100))
+async def get_history(db: AsyncSession = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    rows = await db.execute(
+        select(AgentMessage).where(AgentMessage.user_id == user.id)
+        .order_by(AgentMessage.created_at).limit(100)
+    )
     return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
             for m in rows.scalars().all()]
 
 
 @router.delete("/history", status_code=204)
-async def clear_history(db: AsyncSession = Depends(get_db)):
+async def clear_history(db: AsyncSession = Depends(get_db),
+                        user: User = Depends(get_current_user)):
     from sqlalchemy import delete
-    await db.execute(delete(AgentMessage))
+    await db.execute(delete(AgentMessage).where(AgentMessage.user_id == user.id))
     await db.commit()

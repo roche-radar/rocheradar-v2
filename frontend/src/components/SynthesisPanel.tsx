@@ -11,7 +11,7 @@ export function SynthesisPanel({
   takeaway, soWhat, conclusion, generatedAt, cached, error,
   isLoading, isError, hasRun, onGenerate, accent = "blue", picks,
   takeawayLabel = "Takeaway", conclusionLabel = "Conclusion",
-  collapsible = false, defaultCollapsed = false,
+  collapsible = false, defaultCollapsed = false, canRegenerate = true,
 }: {
   takeaway?: string;
   soWhat?: string;
@@ -29,6 +29,7 @@ export function SynthesisPanel({
   conclusionLabel?: string;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  canRegenerate?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const open = !collapsible || !collapsed;
@@ -48,11 +49,16 @@ export function SynthesisPanel({
           {hasRun && generatedAt && (
             <span className="text-[10px] text-gray-400">{cached ? "cached" : "fresh"}</span>
           )}
-          <button onClick={onGenerate} disabled={isLoading}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-50 transition-colors", btn)}>
-            {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {isLoading ? "Synthesizing…" : hasRun ? "Regenerate" : "Generate synthesis"}
-          </button>
+          {/* First-time "Generate" always available; "Regenerate" hidden once the daily quota is used */}
+          {(!hasRun || canRegenerate) ? (
+            <button onClick={onGenerate} disabled={isLoading}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold disabled:opacity-50 transition-colors", btn)}>
+              {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {isLoading ? "Synthesizing…" : hasRun ? "Regenerate" : "Generate synthesis"}
+            </button>
+          ) : (
+            <span className="text-[10px] text-gray-400">Daily regenerate used — resets tomorrow</span>
+          )}
         </div>
       </div>
 

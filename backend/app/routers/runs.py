@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import RunLog, RunStatus, Target
+from app.auth import require_admin
 from app.config import get_settings
 settings = get_settings()
 
@@ -51,7 +52,7 @@ def _run_to_out(r: RunLog) -> RunOut:
     )
 
 
-@router.post("/trigger")
+@router.post("/trigger", dependencies=[Depends(require_admin)])
 async def trigger_run(body: TriggerRequest, db: AsyncSession = Depends(get_db)):
     from celery import chain, chord, group
     from app.tasks.scrape import scrape_target, wave2_rescue
@@ -148,7 +149,7 @@ async def current_run(db: AsyncSession = Depends(get_db)):
     return {"running": True, **_run_to_out(run).model_dump()}
 
 
-@router.post("/stop")
+@router.post("/stop", dependencies=[Depends(require_admin)])
 async def stop_run(db: AsyncSession = Depends(get_db)):
     # Cancel ALL currently-running rows in one go: stale rows can pile up
     # if a previous chord finished without a completion callback.
@@ -197,7 +198,7 @@ async def list_runs(db: AsyncSession = Depends(get_db)):
     return [_run_to_out(r) for r in rows.scalars().all()]
 
 
-@router.post("/generate-pdfs")
+@router.post("/generate-pdfs", dependencies=[Depends(require_admin)])
 async def generate_pdfs(db: AsyncSession = Depends(get_db)):
     """Regenerate PDFs for all active targets from existing insights — no scraping needed."""
     from celery import group, chain
@@ -233,7 +234,7 @@ async def get_run(run_id: int, db: AsyncSession = Depends(get_db)):
     return _run_to_out(run)
 
 
-@router.post("/reset-all")
+@router.post("/reset-all", dependencies=[Depends(require_admin)])
 async def reset_all(db: AsyncSession = Depends(get_db)):
     """Delete all operational data (posts, insights, summaries, runs, blobs) — keeps targets and settings."""
     import os
