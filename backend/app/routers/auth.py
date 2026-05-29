@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     email: str
     role: str
     is_active: bool
+    is_superadmin: bool
     created_at: str
 
 
@@ -60,6 +61,7 @@ def _valid_email(email: str) -> bool:
 
 def _out(u: User) -> UserOut:
     return UserOut(id=u.id, name=u.name, email=u.email, role=u.role, is_active=u.is_active,
+                   is_superadmin=bool(getattr(u, "is_superadmin", False)),
                    created_at=u.created_at.isoformat() if u.created_at else "")
 
 
@@ -173,6 +175,7 @@ async def update_user(user_id: int, body: UpdateUserBody,
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    protected = bool(getattr(user, "is_superadmin", False))
     if body.name is not None:
         user.name = body.name.strip() or None
     if body.email is not None:
@@ -187,10 +190,14 @@ async def update_user(user_id: int, body: UpdateUserBody,
     if body.role is not None:
         if body.role not in ("user", "admin"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "role must be 'user' or 'admin'")
+        if protected and body.role != "admin":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "The super admin's role cannot be changed")
         user.role = body.role
     if body.is_active is not None:
         if user.id == admin.id and not body.is_active:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot deactivate your own account")
+        if protected and not body.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "The super admin cannot be deactivated")
         user.is_active = body.is_active
     if body.password is not None:
         if len(body.password) < 8:
@@ -208,6 +215,8 @@ async def delete_user(user_id: int, admin: User = Depends(require_admin),
     if user_id == admin.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete your own account")
     user = await db.get(User, user_id)
+    if user and getattr(user, "is_superadmin", False):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The super admin account cannot be deleted")
     if user:
         await db.delete(user)
         await db.commit()

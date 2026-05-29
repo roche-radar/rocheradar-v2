@@ -15,4 +15,6 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")  # admin | user
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Protected owner account — cannot be deleted, deactivated, or demoted by anyone
+    is_superadmin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

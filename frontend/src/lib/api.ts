@@ -464,5 +464,6 @@ export interface AuthUserDTO {
   email: string;
   role: "admin" | "user";
   is_active: boolean;
+  is_superadmin: boolean;
   created_at: string;
 }

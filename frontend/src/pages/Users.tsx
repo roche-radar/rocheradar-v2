@@ -155,6 +155,7 @@ function UserRow({ u, self, onUpdate, onDelete, busy }: {
   useEffect(() => { setName(u.name ?? ""); setEmail(u.email); }, [u.name, u.email]);
 
   const detailsChanged = name.trim() !== (u.name ?? "") || email.trim() !== u.email;
+  const protectedAcct = !!u.is_superadmin;   // super admin: can't be demoted, deactivated, or deleted
   const field = "w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#1e3a5f] bg-white dark:bg-[#0f2744] text-sm focus:outline-none focus:ring-2 focus:ring-roche-blue/30";
 
   return (
@@ -176,8 +177,10 @@ function UserRow({ u, self, onUpdate, onDelete, busy }: {
         </div>
         {/* Role */}
         <span className={cn("hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0",
-          u.role === "admin" ? "bg-roche-blue/10 text-roche-blue dark:text-blue-300" : "bg-slate-100 dark:bg-slate-800 text-slate-500")}>
-          {u.role === "admin" ? <ShieldCheck size={12} /> : <UserIcon size={12} />} {u.role}
+          u.is_superadmin ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+            : u.role === "admin" ? "bg-roche-blue/10 text-roche-blue dark:text-blue-300"
+            : "bg-slate-100 dark:bg-slate-800 text-slate-500")}>
+          {u.role === "admin" ? <ShieldCheck size={12} /> : <UserIcon size={12} />} {u.is_superadmin ? "super admin" : u.role}
         </span>
         {/* Active status */}
         <span className={cn("inline-flex items-center gap-1.5 text-xs shrink-0 w-[72px]",
@@ -213,27 +216,29 @@ function UserRow({ u, self, onUpdate, onDelete, busy }: {
               <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Role</label>
               <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/70">
                 {(["user", "admin"] as const).map((r) => (
-                  <button key={r} disabled={self || busy}
+                  <button key={r} disabled={self || busy || protectedAcct}
                     onClick={() => u.role !== r && onUpdate({ role: r })}
                     className={cn("px-3 py-1 rounded-md text-xs font-medium capitalize transition-all",
                       u.role === r ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500",
-                      self && "opacity-50 cursor-not-allowed")}>
+                      (self || protectedAcct) && "opacity-50 cursor-not-allowed")}>
                     {r}
                   </button>
                 ))}
               </div>
-              {self && <p className="text-[10px] text-slate-400 mt-1">You can't change your own role.</p>}
+              {protectedAcct ? <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">Super admin — role is locked.</p>
+                : self && <p className="text-[10px] text-slate-400 mt-1">You can't change your own role.</p>}
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Status</label>
-              <button disabled={self || busy} onClick={() => onUpdate({ is_active: !u.is_active })}
+              <button disabled={self || busy || protectedAcct} onClick={() => onUpdate({ is_active: !u.is_active })}
                 className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
                   u.is_active
                     ? "border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                     : "border-green-300 dark:border-green-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20",
-                  self && "opacity-50 cursor-not-allowed")}>
+                  (self || protectedAcct) && "opacity-50 cursor-not-allowed")}>
                 {u.is_active ? "Deactivate account" : "Activate account"}
               </button>
+              {protectedAcct && <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">Super admin can't be deactivated.</p>}
             </div>
           </div>
 
@@ -252,7 +257,7 @@ function UserRow({ u, self, onUpdate, onDelete, busy }: {
           </div>
 
           {/* Danger zone */}
-          {!self && (
+          {!self && !protectedAcct && (
             <div className="pt-2 border-t border-slate-100 dark:border-white/5">
               <button onClick={onDelete} disabled={busy}
                 className="flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40">
